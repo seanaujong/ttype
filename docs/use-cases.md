@@ -4,7 +4,15 @@ Concrete walkthroughs of how someone uses ttype. We start here — before any en
 
 Each case names the **goal** in [../CLAUDE.md](../CLAUDE.md) it validates and the **open questions** it surfaces. Together they anchor every downstream decision (in [engine-design.md](engine-design.md), [typing-feel.md](typing-feel.md), and the rest) back to concrete user behavior.
 
-## 1. Smoke — built-in sample
+## At a glance
+
+- **Smoke — built-in sample** — `ttype` with no args; engine runs end-to-end over a built-in paragraph.
+- **Type an essay or article from a file** — `ttype path/to/essay.txt`; the file adapter doesn't require engine changes.
+- **Type from stdin** — `curl ... | ttype`, `cat ... | ttype`; identical engine state to the file case.
+- **Type a git diff, commit, or PR** — `git diff | ttype`; engine doesn't know what a diff is; `--diff` rendering is a future additive layer.
+- **Type a whole source file** — `ttype source/app.tsx`; exposes tabs / trailing whitespace / long lines / non-printables. Also the **dogfood** entry point for the *self-hosting* goal.
+
+## Smoke — built-in sample
 
 You just installed ttype, or you launched it to mess around.
 
@@ -37,7 +45,7 @@ skipped:        0 chars
 
 **Validates:** the engine works end-to-end with zero adapters wired in. If we can't get this working, nothing else matters.
 
-## 2. Type an essay or article from a file
+## Type an essay or article from a file
 
 For drilling on a piece of writing you want to internalize.
 
@@ -45,11 +53,11 @@ For drilling on a piece of writing you want to internalize.
 $ ttype ~/notes/paul-graham-makers.txt
 ```
 
-Identical screen to case 1 — only the text source changed. Long text wraps to terminal width and the view scrolls as you progress.
+Identical screen to the *smoke* case — only the text source changed. Long text wraps to terminal width and the view scrolls as you progress.
 
-**Validates goal 1 (general-purpose engine):** adding file input must not require engine changes. If it does, the boundary between "engine" and "adapter" is leaking.
+**Validates the general-purpose engine goal:** adding file input must not require engine changes. If it does, the boundary between "engine" and "adapter" is leaking.
 
-## 3. Type from stdin
+## Type from stdin
 
 For piping in anything: `curl`, `cat`, `pbpaste`, `git`, `gh`.
 
@@ -59,11 +67,11 @@ $ cat src/lib/parser.ts | ttype
 $ pbpaste | ttype
 ```
 
-Behaviorally identical to case 2. Just a different adapter feeding the same engine.
+Behaviorally identical to the *file* case. Just a different adapter feeding the same engine.
 
-**Validates goal 1 again, from the other side:** `ttype foo` and `cat foo | ttype` should produce the same in-engine state. If they don't, an adapter is doing too much (or too little).
+**Validates the general-purpose engine goal from the other side:** `ttype foo` and `cat foo | ttype` should produce the same in-engine state. If they don't, an adapter is doing too much (or too little).
 
-## 4. Type a git diff, commit, or PR
+## Type a git diff, commit, or PR
 
 For learning a monorepo by typing through its changes.
 
@@ -75,15 +83,15 @@ $ gh pr diff 1234 | ttype
 
 In the v1 plain renderer, **every character of the diff is part of the text to type** — including `+`, `-`, ` `, and `@@` hunk markers. That's intentional: the engine doesn't know what a diff is, and we want to keep it that way.
 
-A later `--diff` flag (goal 2) layers diff-awareness on top of the plain renderer: dim hunk headers, color `+`/`-` lines, optionally auto-skip the leading marker so you only type the *content* of changed lines. None of that requires engine changes — that's the whole point.
+A later `--diff` flag (the *layerable rendering* goal) layers diff-awareness on top of the plain renderer: dim hunk headers, color `+`/`-` lines, optionally auto-skip the leading marker so you only type the *content* of changed lines. None of that requires engine changes — that's the whole point.
 
-**Validates goal 2 (layerable rendering)** — but only when we add the `--diff` layer later. For now, this case just exercises goal 1 with messy input.
+**Validates the layerable rendering goal** — but only when we add the `--diff` layer later. For now, this case just exercises the general-purpose engine with messy input.
 
 **Open question:** should the `--diff` layer auto-skip line markers (`+ `, `- `, ` `)? That changes how an "advance cursor" rule needs to be defined in the engine — it can't be hardcoded to "advance by 1 char" if a renderer wants to skip ranges. Worth deciding before we lock the engine API.
 
-## 5. Type a whole source file
+## Type a whole source file
 
-Mechanically the same as case 2 or 3, but the *content* exposes UX decisions that prose doesn't.
+Mechanically the same as the *file* or *stdin* cases, but the *content* exposes UX decisions that prose doesn't.
 
 ```
 $ ttype source/app.tsx
@@ -98,7 +106,7 @@ Things that come up:
 
 These decisions live in the engine's data shape, so we want them settled before we write `type Engine = ...`.
 
-**Dogfood note:** this case has a privileged role — it covers typing through *this very repo's* `.tsx`, markdown, and diff output. See goal 4 in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
+**Dogfood note:** this case has a privileged role — it covers typing through *this very repo's* `.tsx`, markdown, and diff output. See the *self-hosting* goal in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
 
 ## Open questions to settle before coding
 

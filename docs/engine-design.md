@@ -9,7 +9,7 @@ We picked this shape because it makes the engine **auditable, replayable, and tr
 - Replayable: a saved session (`{ text, events }`) re-applied produces the same state. Bug reports become files.
 - Testable: the engine imports nothing UI-related. Tests are plain function calls feeding events; every scenario in [scenarios.md](scenarios.md) becomes a fixture.
 
-The rest of this doc shows how the pattern works, why it's a natural fit for goals 1–2 in [../CLAUDE.md](../CLAUDE.md), and what we're borrowing from a famously rigorous case study of the same pattern: Pokémon Showdown's battle engine.
+The rest of this doc shows how the pattern works, why it's a natural fit for the *general-purpose engine* and *layerable rendering* goals in [../CLAUDE.md](../CLAUDE.md), and what we're borrowing from a famously rigorous case study of the same pattern: Pokémon Showdown's battle engine.
 
 ## What Pokémon Showdown teaches
 
@@ -114,7 +114,7 @@ The event-sourced model is what React+Redux teaches, what Elm is built on, what 
 
 ## Adapter output shape (tentative — validate when we build adapters)
 
-The cosmetic/typeable separation is the load-bearing idea that makes goal 4 (self-hosting on this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware *rendering* (dim hunk headers, color `+`/`-` markers, etc.).
+The cosmetic/typeable separation is the load-bearing idea that makes the *self-hosting* goal (typing through this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware *rendering* (dim hunk headers, color `+`/`-` markers, etc.).
 
 The natural generalization: adapters produce **spans**, not just typeable indices. Each span covers a contiguous byte range and tags it as either typeable or cosmetic-with-a-style.
 
@@ -134,10 +134,10 @@ type CosmeticStyle = 'dim' | 'diff-header' | 'diff-add' | 'diff-remove' | 'markd
 
 Behavior:
 - The **engine** consumes only the `typeable` spans. The cursor advances within a typeable span and jumps to the next typeable span at boundaries. `text` is the source of truth for what to display; spans describe where the cursor can land and what to style.
-- **Renderers** consume *all* spans. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`. Diff renderer: applies the styles. Same engine, different rendering layers — that's goal 2 (layerable rendering).
+- **Renderers** consume *all* spans. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`. Diff renderer: applies the styles. Same engine, different rendering layers — that's the *layerable rendering* goal.
 - **Adapters** are the cosmetic-aware layer. The file adapter might mark only leading whitespace as cosmetic. The stdin-from-`git-diff` adapter (or a `--diff` mode) marks `@@` hunk headers, `+`/`-`/` ` line prefixes, and `diff --git` headers as cosmetic, with appropriate styles.
 
-This is a clean generalization of [typing-feel.md](typing-feel.md)'s Principle 2 from "render whitespace, don't require it" to **"render the structure, require typing of the content."** Whitespace skipping is just the simplest case.
+This is a clean generalization of [typing-feel.md](typing-feel.md)'s *render the structure, require the content* principle. Whitespace skipping is just the simplest case.
 
 ### Why this is tentative
 
@@ -152,10 +152,10 @@ We haven't built any of this yet, and the shape might want refinement when we hi
 
 We treat the above as a hypothesis, not a spec. Concretely, validate it when we build:
 
-1. The **file adapter** (Scenario 9 in [scenarios.md](scenarios.md) — indented code line). If marking leading whitespace as a `cosmetic` span feels clean, the shape is probably right. If we end up wanting "cosmetic but only as a leading run" as its own kind, the shape needs revising.
-2. The **stdin diff adapter** / `--diff` mode (use case 4). Real `git show` output is the stress test. If we can describe a diff with spans of `cosmetic { style: 'diff-add' }` etc. and the renderer just consumes them, the design holds. If we find ourselves wanting the renderer to *also* know the input is a diff to do the right thing, the spans aren't carrying enough information.
+1. The **file adapter** (the *indented code line, mid-line entry* scenario in [scenarios.md](scenarios.md)). If marking leading whitespace as a `cosmetic` span feels clean, the shape is probably right. If we end up wanting "cosmetic but only as a leading run" as its own kind, the shape needs revising.
+2. The **stdin diff adapter** / `--diff` mode (the *type a git diff, commit, or PR* case in [use-cases.md](use-cases.md)). Real `git show` output is the stress test. If we can describe a diff with spans of `cosmetic { style: 'diff-add' }` etc. and the renderer just consumes them, the design holds. If we find ourselves wanting the renderer to *also* know the input is a diff to do the right thing, the spans aren't carrying enough information.
 
-If either of those validations fails, revisit this section. The dogfood commands from goal 4 are also the natural acceptance test.
+If either of those validations fails, revisit this section. The dogfood commands from the *self-hosting* goal are also the natural acceptance test.
 
 ## Open questions
 

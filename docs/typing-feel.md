@@ -4,6 +4,14 @@ Where [use-cases.md](use-cases.md) covers *what people use ttype for*, this doc 
 
 These principles take precedence over "what other type racers do." We cite prior art to learn from it, not copy.
 
+## At a glance
+
+- **Chill > strict** — wrong keys are marked and counted, not halted on. No strict mode in v1.
+- **Render the structure, require the content** — whitespace, blank lines, and (later) diff/markdown markers are displayed but auto-skipped from the typing path.
+- **Errors stay local** — red is bounded to the actual wrong chars you typed; never cascades into future correct chars.
+- **Correction is cheap and obvious** — backspace is seamless, symmetric with forward motion, and carries no accuracy penalty.
+- **Cursor is visible and obvious** — inverse-video background on the next char, not a thin caret.
+
 ## What other trainers do (in one paragraph each)
 
 - **TypeRacer** is strict — you cannot advance past a wrong character; you must fix it. Errors render bright red. Historically, cascading errors after a mistake all counted against you; they later fixed that so consecutive post-error chars register as one error. Stat-side leniency, not visual leniency.
@@ -13,16 +21,16 @@ These principles take precedence over "what other type racers do." We cite prior
 
 The trainers designed for comfort (Monkeytype's freedom mode, TiltStack's auto-indent) point the same direction we're going. The strict ones (TypeRacer, Typing.io) are what we're *not* doing in v1.
 
-## Principle 1 — Chill > strict
+## Chill > strict
 
 One wrong character should not tank a run, halt the cursor, or feel like a big deal.
 
 **Rules:**
 - A wrong key is *marked* and *counted*, but you advance past it. No halt.
 - No strict mode in v1. We can add `--strict` later if anyone actually wants it; don't build it speculatively.
-- End-of-run summary uses lenient accuracy (see Principle 4) — using backspace to fix a mistake is not penalized.
+- End-of-run summary uses lenient accuracy (see *correction is cheap and obvious* below) — using backspace to fix a mistake is not penalized.
 
-## Principle 2 — Render the structure, require the content
+## Render the structure, require the content
 
 The screen shows structural / cosmetic characters in their original positions, but ttype doesn't make you type them. Whitespace is the simplest example; later this same principle handles diff line markers (`+`/`-`/` `, `@@` hunk headers) and possibly markdown structural chars. Adapters are the layer that decides what's cosmetic for a given input; the engine never branches on input kind. See [engine-design.md](engine-design.md) for the span shape this implies.
 
@@ -37,28 +45,29 @@ The effective rule: **the cursor only ever rests on a character the user is expe
 
 This is the load-bearing design decision in this doc. It means the engine's cursor isn't `position += 1` — it's `cursor = nextTypeableIndex(text, cursor)`.
 
-## Principle 3 — Errors stay local
+## Errors stay local
 
 A single wrong keystroke must not visually contaminate everything that comes after.
 
 **Rules:**
-1. A char you typed *wrong* stays red until you correct it (or stays red forever if you don't).
-2. A char you typed *correctly* is always green — even if there's an uncorrected error earlier on the same line.
-3. The cursor highlight is its own color (inverse video on the current char), not tied to correctness.
-4. If you backspace and retype, the latest state wins. No ghost errors accumulating.
-5. Error count is per-keystroke, not per-displayed-red-char. Pressing the wrong key once = 1 error in the stats.
+
+- A char you typed *wrong* stays red until you correct it (or stays red forever if you don't).
+- A char you typed *correctly* is always green — even if there's an uncorrected error earlier on the same line.
+- The cursor highlight is its own color (inverse video on the current char), not tied to correctness.
+- If you backspace and retype, the latest state wins. No ghost errors accumulating.
+- Error count is per-keystroke, not per-displayed-red-char. Pressing the wrong key once = 1 error in the stats.
 
 So "red text" is bounded to *the actual wrong chars you've typed and not corrected*. The visual maximum red on screen is the count of uncorrected wrong keystrokes — never a region.
 
 Optional (decide later): a subtle underline on the *word* containing an uncorrected error, so it's findable when you're scrolling fast. Adds visibility without staining future text.
 
-## Principle 4 — Correction is cheap and obvious
+## Correction is cheap and obvious
 
-- **Backspace** moves the cursor back one *typeable* index (it skips over auto-skipped whitespace the same way forward motion does — symmetric with Principle 2).
+- **Backspace** moves the cursor back one *typeable* index (it skips over auto-skipped whitespace the same way forward motion does — symmetric with *render the structure, require the content*).
 - Holding backspace works at the OS key-repeat rate. Nothing special.
 - There is *no penalty* for using backspace. Accuracy is measured against the *final state* of the text, not the keystroke history. (This is "lenient accuracy" — see open questions.)
 
-## Principle 5 — Cursor is visible and obvious
+## Cursor is visible and obvious
 
 Borrow from TypeRacer's modern UI: the next-to-type character gets a **background highlight** (inverse video), not a thin caret. Carets are easy to lose against monospaced text on dark themes.
 
@@ -74,7 +83,7 @@ These principles aren't just visual — they shape the engine's API. Worth surfa
 - The set of typeable indices is computed at ingestion time from configurable rules: strip trailing whitespace, skip leading whitespace, skip blank lines, skip diff line markers (later), etc. These are adapter-configurable, not engine-hardcoded.
 - Renderers receive `(text, typeableIndices, cursorIndex, keystrokeLog)` and produce output. They never mutate engine state.
 
-This keeps the engine general (Principle from CLAUDE.md goal 1) while making "render but don't require" a first-class concept rather than a hack.
+This keeps the engine general (the *general-purpose engine* goal in CLAUDE.md) while making "render but don't require" a first-class concept rather than a hack.
 
 ## Open questions
 

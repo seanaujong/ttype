@@ -4,7 +4,23 @@ Patterns we use in ttype to make the engine **hard to misuse** and **easy to ref
 
 These conventions pair with the event-sourced engine in [engine-design.md](engine-design.md): pure functions over immutable state are easy to reason about, easy to test, and easy to replay. Mutability undoes most of that.
 
-## 1. Discriminated unions instead of flag bags
+## At a glance
+
+- **Discriminated unions instead of flag bags** — finite mutually-exclusive shapes use a `kind` field; the compiler only lets legal states compile.
+- **Exhaustiveness checking with `never`** — every `switch` on a union ends with a `never` assertion so adding a new variant forces an audit of every consumer.
+- **Discriminated unions over `T | null` / `T | undefined`** — nullables let "I forgot a check" pass; unions force the check.
+- **Branded types** — `TypeableIndex` is not just any `number`; smart constructors prove the brand.
+- **`readonly` everywhere in state** — `Readonly<T>` + `ReadonlyArray<T>` make accidental mutation a compile error.
+- **Pure functions return new state** — `applyEvent` never mutates; it builds and returns. Pairs with event-sourcing's fold.
+- **No array mutators** — prefer the copy-returning equivalents (`[...a, x]`, `arr.toSorted()`, `arr.map(...)`).
+- **`as const` for fixed sets** — derive the union type from the values, so the values are the single source of truth.
+- **Smart constructors for invariants** — one place gets to assert the brand; everywhere else trusts it.
+- **Strict tsconfig** — turn on `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` before writing engine code, not after.
+- **No `any`; `unknown` only at boundaries** — `unknown` forces a narrow; `any` silently disables checking.
+
+The doc closes with a per-commit **checklist** that converts these into a thing to look at before committing engine code.
+
+## Discriminated unions instead of flag bags
 
 When a value has finite, mutually exclusive shapes, encode the shape in a `kind` field rather than juggling flags.
 
@@ -28,7 +44,7 @@ type CharState =
 
 The `kind` field is the **discriminator**. TypeScript narrows the type inside `switch`/`if` blocks automatically. You also can't access `typedChar` on an `untyped` state — the compiler won't let you.
 
-## 2. Exhaustiveness checking with `never`
+## Exhaustiveness checking with `never`
 
 Every `switch` on a discriminated union ends with a `never` assertion:
 
@@ -49,7 +65,7 @@ function describe(s: CharState): string {
 
 If we later add `{ kind: 'corrected'; ... }` and forget to handle it here, the compiler errors at the `never` line. This is how we make adding a new variant *force* an audit of every consumer — exactly what we want for an engine.
 
-## 3. Discriminated unions over `T | null` / `T | undefined`
+## Discriminated unions over `T | null` / `T | undefined`
 
 Nullables make pre-existing code silently wrong when you forget a check. Discriminated unions force the check.
 
@@ -70,7 +86,7 @@ if (cursor.kind === 'at') {
 
 Use `null`/`undefined` only at boundaries (parsing, optional config). Inside the engine, everything is a union.
 
-## 4. Branded types for "this is not just any number/string"
+## Branded types
 
 Plain `number` lets you mix `cursor`, `length`, `index-into-charStates`, `index-into-typeableIndices` — all are `number`. Brand them so they can't be confused.
 
@@ -90,7 +106,7 @@ function toTypeableIndex(n: number, indices: readonly number[]): TypeableIndex {
 
 Brands are zero-cost at runtime — they exist only in the type system. Use them sparingly, only where confusion would be expensive (cursor indices are a great fit).
 
-## 5. `readonly` everywhere in state
+## `readonly` everywhere in state
 
 State is immutable. Mark it.
 
@@ -107,7 +123,7 @@ type State = Readonly<{
 
 Note: `Readonly` is shallow. Nested objects need their own `Readonly` or the structure needs to be flat enough that shallow is sufficient. For ttype, shallow + `ReadonlyArray` is enough — nothing nests deeply.
 
-## 6. Pure functions return new state
+## Pure functions return new state
 
 The engine API is one function: `applyEvent(state, event) → state`. Inside it, we *never* mutate `state`. We build the next state and return it.
 
@@ -137,7 +153,7 @@ function applyEvent(state: State, event: Event): State {
 
 This pairs with event-sourcing: `state = events.reduce(applyEvent, initial)`. Immutability is what makes that fold safe — every intermediate state is a real, inspectable value.
 
-## 7. No array mutators
+## No array mutators
 
 Use the copy-returning versions:
 
@@ -150,9 +166,9 @@ Use the copy-returning versions:
 | `arr.reverse()`  | `arr.slice().reverse()` or `arr.toReversed()` |
 | `arr[i] = x`     | `arr.map((v,j) => j===i ? x : v)` |
 
-`ReadonlyArray<T>` from convention 5 catches most of these at compile time.
+`ReadonlyArray<T>` from *`readonly` everywhere in state* catches most of these at compile time.
 
-## 8. `as const` for fixed sets
+## `as const` for fixed sets
 
 When you have a finite set of literal values, `as const` derives the union type from the values — single source of truth.
 
@@ -163,7 +179,7 @@ type EventKind = typeof EVENT_KINDS[number];  // 'input' | 'backspace' | 'enter'
 
 Add a new kind by editing the array; the type updates automatically.
 
-## 9. Smart constructors for invariants
+## Smart constructors for invariants
 
 If a value has an invariant that the type system can't fully express (e.g., "this number is a valid typeable index for *this* text"), construct it once, in one place, and trust it everywhere else.
 
@@ -184,7 +200,7 @@ function makeInitialState(text: string): State {
 
 The constructor is the one place that gets to write `as TypeableIndex`. Everywhere else, the brand is enforced.
 
-## 10. Strict tsconfig
+## Strict tsconfig
 
 The compiler is your fastest test. Turn it up.
 
@@ -195,7 +211,7 @@ The current `@sindresorhus/tsconfig` base is already strict; we should additiona
 
 We'll flip these on when we start writing engine code, not retroactively.
 
-## 11. Avoid `any`. Tolerate `unknown` at boundaries.
+## Avoid `any`. Tolerate `unknown` at boundaries.
 
 `any` disables typechecking locally and silently. `unknown` is the safe alternative — it forces you to narrow before use.
 

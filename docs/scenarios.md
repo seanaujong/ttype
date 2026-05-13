@@ -1,6 +1,20 @@
 # Scenarios — what typing actually looks like
 
-Concrete, frame-by-frame walkthroughs of how ttype responds to keystrokes. Each scenario tests a specific rule from [typing-feel.md](typing-feel.md). When we build the engine, these become the unit tests.
+Concrete, frame-by-frame walkthroughs of how ttype responds to keystrokes. Each scenario tests a specific rule from [typing-feel.md](typing-feel.md). When we build the engine, these become the unit tests / replay fixtures.
+
+## At a glance
+
+- **Happy path** — correct keystrokes advance the cursor through `Hello world` and complete the run.
+- **Single wrong char, corrected with backspace** — wrong char goes red; backspace clears it; retype turns it green; the wrong keystroke still counts in stats.
+- **Wrong char left uncorrected; future chars still green** — the headline anti-pattern from strict trainers: we don't stain the tail.
+- **Cluster of wrong chars; no cascade** — three wrong keys in a row mark three red chars, not a region.
+- **Enter at proper end of line** — leading whitespace on the next line is rendered but auto-skipped; cursor lands on the first non-whitespace char.
+- **Enter mid-line** — allowed; remaining untyped chars on the line are auto-marked red as "missed"; cursor jumps to next line.
+- **Backspace across a line break** — symmetric with forward motion; retreats into the previous line when current line has nothing to retreat over.
+- **Blank line in source** — display-only; not part of the typing path.
+- **Indented code line, mid-line entry** — the everyday case: typo, backspace, fix, continue. No drama.
+- **Tabs in source** — structural tabs are rendered but not keystrokes.
+- **Backspace at the very start** — no-op; not an error.
 
 ## Notation
 
@@ -19,7 +33,7 @@ A "frame" shows the source text with its current per-cell state. Below each fram
 
 ---
 
-## Scenario 1 — Happy path
+## Happy path
 
 **Tests:** correct keystrokes advance the cursor; the run completes cleanly.
 
@@ -41,7 +55,7 @@ Stats: 11 correct keystrokes, 0 wrong, 100% accuracy.
 
 ---
 
-## Scenario 2 — Single wrong char, corrected with backspace
+## Single wrong char, corrected with backspace
 
 **Tests:** errors mark the char red; backspace moves back one typeable index; retyping correctly turns it green.
 
@@ -77,9 +91,9 @@ Note: even though the final on-screen state is "all green," the wrong keystroke 
 
 ---
 
-## Scenario 3 — Wrong char left uncorrected; future chars still green
+## Wrong char left uncorrected; future chars still green
 
-**Tests:** Principle 3 — errors stay local. A wrong char does not stain subsequent correct chars.
+**Tests:** *errors stay local* from [typing-feel.md](typing-feel.md) — a wrong char does not stain subsequent correct chars.
 
 Source: `Hello`
 
@@ -98,7 +112,7 @@ This is the headline anti-pattern from TypeRacer-style trainers we're avoiding: 
 
 ---
 
-## Scenario 4 — Cluster of wrong chars; no cascade
+## Cluster of wrong chars; no cascade
 
 **Tests:** errors don't cascade. Pressing 3 wrong keys in a row marks 3 red chars, not the whole region after.
 
@@ -120,9 +134,9 @@ Stats: 8 correct, 3 wrong. Accuracy = 8/11 ≈ 72.7%.
 
 ---
 
-## Scenario 5 — Enter at proper end of line (with indented next line)
+## Enter at proper end of line
 
-**Tests:** Principle 2 — leading whitespace is rendered but auto-skipped on Enter.
+**Tests:** *render the structure, require the content* from [typing-feel.md](typing-feel.md) — leading whitespace is rendered but auto-skipped on Enter.
 
 Source:
 ```
@@ -151,9 +165,9 @@ Engine note: the `typeableIndices` list contains the 12 chars of `def hello():`,
 
 ---
 
-## Scenario 6 — Enter mid-line (the new decision)
+## Enter mid-line
 
-**Tests:** Principle 2 — pressing Enter before finishing a line is allowed; the rest of the line is auto-marked red; cursor jumps to next line.
+**Tests:** *render the structure, require the content* — pressing Enter before finishing a line is allowed; the rest of the line is auto-marked red; cursor jumps to next line.
 
 Source:
 ```
@@ -181,14 +195,14 @@ Stats: 5 correct keystrokes, 0 wrong keystrokes, but 8 missed chars on line 1.
 
 **Decisions for this case:**
 
-1. **Auto-marked-red chars are tracked separately from typing errors.** They're "missed" / "skipped," not wrong keystrokes. The engine records them as a distinct category in the keystroke log. The user *chose* to skip; that's not the same as fat-fingering, and they shouldn't be conflated in any review the user sees. (See [review.md](review.md).)
-2. **Backspace can cross back into the auto-marked tail.** If the user backspaces from line 2 while line 2 has nothing typed, the cursor returns to the last auto-marked char on line 1 and clears its mark. Symmetric with Scenario 7 — Enter is not specially irreversible.
+- **Auto-marked-red chars are tracked separately from typing errors.** They're "missed" / "skipped," not wrong keystrokes. The engine records them as a distinct category in the keystroke log. The user *chose* to skip; that's not the same as fat-fingering, and they shouldn't be conflated in any review the user sees. (See [review.md](review.md).)
+- **Backspace can cross back into the auto-marked tail.** If the user backspaces from line 2 while line 2 has nothing typed, the cursor returns to the last auto-marked char on line 1 and clears its mark. Symmetric with the *backspace across a line break* scenario — Enter is not specially irreversible.
 
 ---
 
-## Scenario 7 — Backspace across a line break
+## Backspace across a line break
 
-**Tests:** Principle 4 — backspace is symmetric with forward motion. It should retreat to the previous typeable index, even if that's on a previous line.
+**Tests:** *correction is cheap and obvious* from [typing-feel.md](typing-feel.md) — backspace is symmetric with forward motion. It should retreat to the previous typeable index, even if that's on a previous line.
 
 Source:
 ```
@@ -227,9 +241,9 @@ This is the chill principle: backspace just works, anywhere, always.
 
 ---
 
-## Scenario 8 — Blank line in source
+## Blank line in source
 
-**Tests:** Principle 2 — blank lines are display-only.
+**Tests:** *render the structure, require the content* — blank lines are display-only.
 
 Source:
 ```
@@ -261,9 +275,9 @@ The blank line is in the rendered output (so paragraph shape is preserved) but n
 
 ---
 
-## Scenario 9 — Indented code line, mid-line entry
+## Indented code line, mid-line entry
 
-**Tests:** combination of Principle 2 (whitespace auto-skip) and Principle 3 (errors stay local) on a code-like input.
+**Tests:** combination of *render the structure, require the content* (whitespace auto-skip) and *errors stay local* on a code-like input.
 
 Source:
 ```
@@ -302,9 +316,9 @@ This is the everyday case: typo, backspace, fix, continue. No drama.
 
 ---
 
-## Scenario 10 — Tabs in source
+## Tabs in source
 
-**Tests:** Principle 2 — tabs are rendered but not required as keystrokes (when they're structural, i.e., at the start of a line).
+**Tests:** *render the structure, require the content* — tabs are rendered but not required as keystrokes (when they're structural, i.e., at the start of a line).
 
 Source (the indentation here is a literal tab character, not spaces):
 ```
@@ -331,7 +345,7 @@ Open question: what about a tab *mid-line* (not structural)? E.g., `print("a"\t"
 
 ---
 
-## Scenario 11 — Backspace at the very start
+## Backspace at the very start
 
 **Tests:** edge case — backspace before any keystroke is a no-op.
 
@@ -348,14 +362,14 @@ Frame 1 — user presses backspace:
 
 ## What these scenarios collectively prove
 
-If the engine passes all 11 of these, we know:
+If the engine passes all eleven, we know:
 
-- The cursor only ever rests on a typeable index (Scenarios 5, 8, 9, 10).
-- Forward motion and backward motion are symmetric and cross line breaks (Scenarios 2, 7).
-- Errors stay local; no cascading red (Scenarios 3, 4, 9).
-- Enter mid-line is allowed, marks the rest red, and jumps (Scenario 6).
-- Stats count keystrokes, not displayed-red chars (Scenarios 2, 6).
-- Edge cases don't crash or behave surprisingly (Scenarios 8, 10, 11).
+- **The cursor only ever rests on a typeable index** — demonstrated by the *enter at proper end of line*, *blank line in source*, *indented code line*, and *tabs in source* scenarios.
+- **Forward motion and backward motion are symmetric and cross line breaks** — demonstrated by *single wrong char, corrected with backspace* and *backspace across a line break*.
+- **Errors stay local; no cascading red** — demonstrated by *wrong char left uncorrected*, *cluster of wrong chars*, and *indented code line*.
+- **Enter mid-line is allowed, marks the rest red, and jumps** — *enter mid-line*.
+- **Stats count keystrokes, not displayed-red chars** — *single wrong char, corrected with backspace* and *enter mid-line*.
+- **Edge cases don't crash or behave surprisingly** — *blank line in source*, *tabs in source*, *backspace at the very start*.
 
 When we write the engine, each of these scenarios should map almost 1:1 to a unit test feeding a sequence of `input(char)` / `enter()` / `backspace()` calls and asserting on the resulting state.
 

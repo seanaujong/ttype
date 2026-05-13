@@ -20,7 +20,7 @@ The engine produces a **keystroke log**. Every key event:
 - key pressed
 - target char at the cursor index when the key was pressed
 - engine action: `insert` / `backspace` / `enter` / `noop`
-- outcome: `correct` / `wrong` / `auto-missed` (the auto-marked-red chars from Scenario 6) / `correction` (a backspace that cleared a wrong char) / `revisit` (a backspace that cleared a correct char)
+- outcome: `correct` / `wrong` / `auto-missed` (the auto-marked-red chars from the *enter mid-line* scenario) / `correction` (a backspace that cleared a wrong char) / `revisit` (a backspace that cleared a correct char)
 
 That log is the single source of truth. The engine itself does not compute WPM, accuracy, "slow words," or anything else derived. It just runs the state machine and appends to the log.
 
@@ -31,7 +31,7 @@ Review is then a **separate consumer** of the log:
 - It could roll up across runs to surface habits (`ttype habits`) — future.
 - It can be replaced or skipped entirely without touching the engine.
 
-This matches CLAUDE.md goal 1 (engine stays general) and lets us ship the engine + a minimal review, then evolve review independently.
+This matches the *general-purpose engine* goal in CLAUDE.md and lets us ship the engine + a minimal review, then evolve review independently.
 
 ## What review could surface
 
@@ -102,4 +102,4 @@ No WPM. No accuracy percentage. The user can press a key to expand any of the th
 
 - [typing-feel.md](typing-feel.md) — the principles. WPM/accuracy mentions there now refer to *internal engine measurements that feed review*, not user-facing scores.
 - [scenarios.md](scenarios.md) — every scenario implicitly demonstrates entries in the keystroke log this doc consumes.
-- [use-cases.md](use-cases.md) — case 1's end-of-run mock will be updated to the review-style summary above, not a WPM score.
+- [use-cases.md](use-cases.md) — the *smoke* case's end-of-run mock now reflects the review-style summary above, not a WPM score.

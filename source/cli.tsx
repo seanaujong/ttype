@@ -9,12 +9,8 @@ const cli = meow(
 	Usage
 	  $ ttype
 
-	Options
-		--name  Your name
-
 	Examples
-	  $ ttype --name=Jane
-	  Hello, Jane
+	  $ ttype
 `,
 	{
 		importMeta: import.meta,
@@ -26,4 +22,4 @@ const cli = meow(
 	},
 );
 
-render(<App name={cli.flags.name} />);
+render(<App />);

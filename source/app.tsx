@@ -1,14 +1,12 @@
 import React from 'react';
 import {Text} from 'ink';
 
-type Props = {
-	name: string | undefined;
-};
+const sampleText = 'The quick brown fox jumps over the lazy dog.';
 
-export default function App({name = 'Stranger'}: Props) {
-	return (
-		<Text>
-			Hello, <Text color="green">{name}</Text>
-		</Text>
-	);
+export default function App() {
+	return <SampleText />;
+}
+
+function SampleText() {
+	return <Text>{sampleText}</Text>;
 }

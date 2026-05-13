@@ -10,6 +10,10 @@
 	"scripts": {
 		"build": "tsc",
 		"dev": "tsc --watch",
+		"format": "prettier --write .",
+		"lint": "xo",
+		"lint:fix": "xo --fix",
+		"fix": "npm run format && npm run lint:fix",
 		"test": "prettier --check . && xo && ava"
 	},
 	"files": [
@@ -31,7 +35,7 @@
 		"eslint-plugin-react-hooks": "^4.6.0",
 		"ink-testing-library": "^3.0.0",
 		"prettier": "^2.8.7",
-		"ts-node": "^10.9.1",
+		"tsx": "^4.21.0",
 		"typescript": "^5.0.3",
 		"xo": "^0.53.1"
 	},
@@ -41,14 +45,16 @@
 			"tsx": "module"
 		},
 		"nodeArguments": [
-			"--loader=ts-node/esm"
-		]
+			"--import=tsx"
+		],
+		"workerThreads": false
 	},
 	"xo": {
 		"extends": "xo-react",
 		"prettier": true,
 		"rules": {
-			"react/prop-types": "off"
+			"react/prop-types": "off",
+			"unicorn/expiring-todo-comments": "off"
 		}
 	},
 	"prettier": "@vdemedes/prettier-config"

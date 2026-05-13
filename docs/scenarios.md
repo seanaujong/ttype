@@ -23,17 +23,17 @@ Concrete, frame-by-frame walkthroughs of how ttype responds to keystrokes. Each 
 
 Each cell below represents one character of the **source** text. The state changes based on what the user has done at that position.
 
-| symbol | meaning | render |
-| ------ | ------- | ------ |
-| `X`    | untyped char | default color |
-| `✓X`   | typed correctly | green |
-| `✗X`   | typed wrong (or auto-marked wrong) | red |
-| `[X]`  | cursor here — X is next to type | inverse-video highlight |
-| `·`    | display-only char (auto-skipped: leading whitespace, blank line, etc.) | dim gray |
-| `↵`    | end-of-line marker, shown when relevant | (only in these docs, not on screen) |
-| `{XY}` | extras typed past the end of the current word | extras list, not part of source |
+| symbol | meaning                                                                | render                              |
+| ------ | ---------------------------------------------------------------------- | ----------------------------------- |
+| `X`    | untyped char                                                           | default color                       |
+| `✓X`   | typed correctly                                                        | green                               |
+| `✗X`   | typed wrong (or auto-marked wrong)                                     | red                                 |
+| `[X]`  | cursor here — X is next to type                                        | inverse-video highlight             |
+| `·`    | display-only char (auto-skipped: leading whitespace, blank line, etc.) | dim gray                            |
+| `↵`    | end-of-line marker, shown when relevant                                | (only in these docs, not on screen) |
+| `{XY}` | extras typed past the end of the current word                          | extras list, not part of source     |
 
-These cells reflect the **engine state** at each frame. The *rendering* (mainline = typed, above-line = target) is described in [typing-feel.md](typing-feel.md) and is a separate concern — the engine state is what tests assert on.
+These cells reflect the **engine state** at each frame. The _rendering_ (mainline = typed, above-line = target) is described in [typing-feel.md](typing-feel.md) and is a separate concern — the engine state is what tests assert on.
 
 A "frame" shows the source text with its current per-cell state. Below each frame, a short note explains the engine state if it isn't obvious.
 
@@ -99,7 +99,7 @@ Note: even though the final on-screen state is "all green," the wrong keystroke 
 
 ## Wrong char left uncorrected; future chars still green
 
-**Tests:** *errors stay local* from [typing-feel.md](typing-feel.md) — a wrong char does not stain subsequent correct chars.
+**Tests:** _errors stay local_ from [typing-feel.md](typing-feel.md) — a wrong char does not stain subsequent correct chars.
 
 Source: `Hello`
 
@@ -142,7 +142,7 @@ Stats: 8 correct, 3 wrong. Accuracy = 8/11 ≈ 72.7%.
 
 ## Typing extras in a word (drift)
 
-**Tests:** *words are sync points* from [typing-feel.md](typing-feel.md) — drift inside a word doesn't cascade past the next whitespace.
+**Tests:** _words are sync points_ from [typing-feel.md](typing-feel.md) — drift inside a word doesn't cascade past the next whitespace.
 
 Source: `Hello world` (two words: `Hello`, `world`)
 
@@ -181,7 +181,7 @@ Stats: 6 correct keystrokes (`H` and `world`), 5 wrong keystrokes in "Hello", 2 
 
 ## Under-typing a word, then advancing with space
 
-**Tests:** *words are sync points* — typing space before finishing a word closes the word; remaining chars become missed; cursor jumps to next word.
+**Tests:** _words are sync points_ — typing space before finishing a word closes the word; remaining chars become missed; cursor jumps to next word.
 
 Source: `Hello world`
 
@@ -205,13 +205,13 @@ Frame 3 — user types `world`:
 
 Stats: 8 correct keystrokes, 0 wrong, 2 missed.
 
-This is *useful* behavior — sometimes you want to abandon a word and move on without rewinding. The space is the "I'm done, next" signal.
+This is _useful_ behavior — sometimes you want to abandon a word and move on without rewinding. The space is the "I'm done, next" signal.
 
 ---
 
 ## Backspace into a closed word
 
-**Tests:** *words are sync points* + *correction is cheap and obvious* — backspace from the start of a word reopens the previous word; auto-missed chars revert to untyped.
+**Tests:** _words are sync points_ + _correction is cheap and obvious_ — backspace from the start of a word reopens the previous word; auto-missed chars revert to untyped.
 
 Source: `Hello world`
 
@@ -246,9 +246,10 @@ The key idea: **reopening past words is just folding a shorter event list.** Sta
 
 ## Enter at proper end of line
 
-**Tests:** *render the structure, require the content* from [typing-feel.md](typing-feel.md) — leading whitespace is rendered but auto-skipped on Enter.
+**Tests:** _render the structure, require the content_ from [typing-feel.md](typing-feel.md) — leading whitespace is rendered but auto-skipped on Enter.
 
 Source:
+
 ```
 def hello():
     print("hi")
@@ -277,9 +278,10 @@ Engine note: the `typeableIndices` list contains the 12 chars of `def hello():`,
 
 ## Enter mid-line
 
-**Tests:** *render the structure, require the content* — pressing Enter before finishing a line is allowed; the rest of the line is auto-marked red; cursor jumps to next line.
+**Tests:** _render the structure, require the content_ — pressing Enter before finishing a line is allowed; the rest of the line is auto-marked red; cursor jumps to next line.
 
 Source:
+
 ```
 Hello, world!
 Goodbye.
@@ -305,16 +307,17 @@ Stats: 5 correct keystrokes, 0 wrong keystrokes, but 8 missed chars on line 1.
 
 **Decisions for this case:**
 
-- **Auto-marked-red chars are tracked separately from typing errors.** They're "missed" / "skipped," not wrong keystrokes. The engine records them as a distinct category in the keystroke log. The user *chose* to skip; that's not the same as fat-fingering, and they shouldn't be conflated in any review the user sees. (See [review.md](review.md).)
-- **Backspace can cross back into the auto-marked tail.** If the user backspaces from line 2 while line 2 has nothing typed, the cursor returns to the last auto-marked char on line 1 and clears its mark. Symmetric with the *backspace across a line break* scenario — Enter is not specially irreversible.
+- **Auto-marked-red chars are tracked separately from typing errors.** They're "missed" / "skipped," not wrong keystrokes. The engine records them as a distinct category in the keystroke log. The user _chose_ to skip; that's not the same as fat-fingering, and they shouldn't be conflated in any review the user sees. (See [review.md](review.md).)
+- **Backspace can cross back into the auto-marked tail.** If the user backspaces from line 2 while line 2 has nothing typed, the cursor returns to the last auto-marked char on line 1 and clears its mark. Symmetric with the _backspace across a line break_ scenario — Enter is not specially irreversible.
 
 ---
 
 ## Backspace across a line break
 
-**Tests:** *correction is cheap and obvious* from [typing-feel.md](typing-feel.md) — backspace is symmetric with forward motion. It should retreat to the previous typeable index, even if that's on a previous line.
+**Tests:** _correction is cheap and obvious_ from [typing-feel.md](typing-feel.md) — backspace is symmetric with forward motion. It should retreat to the previous typeable index, even if that's on a previous line.
 
 Source:
+
 ```
 abc
 xyz
@@ -335,7 +338,7 @@ Frame 2 — user presses backspace:
   → Where does the cursor go?
 ```
 
-**Decision:** backspace from the start of line 2 (when line 2 has no typed chars) moves to the *last typeable index of the previous line*. So the cursor lands on `c`, and `c`'s green mark clears (back to untyped):
+**Decision:** backspace from the start of line 2 (when line 2 has no typed chars) moves to the _last typeable index of the previous line_. So the cursor lands on `c`, and `c`'s green mark clears (back to untyped):
 
 ```
 Frame 2 — backspace:
@@ -353,9 +356,10 @@ This is the chill principle: backspace just works, anywhere, always.
 
 ## Blank line in source
 
-**Tests:** *render the structure, require the content* — blank lines are display-only.
+**Tests:** _render the structure, require the content_ — blank lines are display-only.
 
 Source:
+
 ```
 First paragraph.
 
@@ -387,9 +391,10 @@ The blank line is in the rendered output (so paragraph shape is preserved) but n
 
 ## Indented code line, mid-line entry
 
-**Tests:** combination of *render the structure, require the content* (whitespace auto-skip) and *errors stay local* on a code-like input.
+**Tests:** combination of _render the structure, require the content_ (whitespace auto-skip) and _errors stay local_ on a code-like input.
 
 Source:
+
 ```
 def greet(name):
     return f"Hello, {name}"
@@ -428,14 +433,16 @@ This is the everyday case: typo, backspace, fix, continue. No drama.
 
 ## Tabs in source
 
-**Tests:** *render the structure, require the content* — tabs are rendered but not required as keystrokes (when they're structural, i.e., at the start of a line).
+**Tests:** _render the structure, require the content_ — tabs are rendered but not required as keystrokes (when they're structural, i.e., at the start of a line).
 
 Source (the indentation here is a literal tab character, not spaces):
+
 ```
 func foo() {
 →   return "ok"
 }
 ```
+
 where `→   ` represents one tab character rendered as 4 columns of dim gray.
 
 ```
@@ -451,7 +458,7 @@ Frame 1 — user types `func foo() {` then Enter:
   → cursor jumped past the tab.
 ```
 
-Open question: what about a tab *mid-line* (not structural)? E.g., `print("a"\t"b")`. Lean: still display-only, but flag it for the user somehow. Mid-line tabs are rare in well-formatted source.
+Open question: what about a tab _mid-line_ (not structural)? E.g., `print("a"\t"b")`. Lean: still display-only, but flag it for the user somehow. Mid-line tabs are rare in well-formatted source.
 
 ---
 
@@ -474,14 +481,14 @@ Frame 1 — user presses backspace:
 
 If the engine passes all of them, we know:
 
-- **The cursor lands on the right place** — at typeable positions, advancing word-by-word as appropriate. Demonstrated by *enter at proper end of line*, *blank line in source*, *indented code line*, *tabs in source*.
-- **Forward and backward motion are symmetric** — cross line breaks and word breaks. Demonstrated by *single wrong char, corrected with backspace*, *backspace across a line break*, and *backspace into a closed word*.
-- **Errors stay local — per-char and per-word** — *wrong char left uncorrected*, *cluster of wrong chars*, *indented code line* (per-char); *typing extras in a word* (per-word).
-- **Whitespace syncs cleanly** — typing space mid-word advances and auto-marks the remainder missed; typing extras past a word end stays bounded to that word. *Typing extras in a word*, *under-typing a word*.
-- **Closed words are reopenable** — backspace from the next word reverts auto-missed marks. *Backspace into a closed word*.
-- **Enter mid-line is allowed, marks the rest red, and jumps** — *enter mid-line*.
-- **Stats count keystrokes, not displayed-red chars** — *single wrong char, corrected with backspace*, *enter mid-line*, *typing extras in a word*.
-- **Edge cases don't crash or behave surprisingly** — *blank line in source*, *tabs in source*, *backspace at the very start*.
+- **The cursor lands on the right place** — at typeable positions, advancing word-by-word as appropriate. Demonstrated by _enter at proper end of line_, _blank line in source_, _indented code line_, _tabs in source_.
+- **Forward and backward motion are symmetric** — cross line breaks and word breaks. Demonstrated by _single wrong char, corrected with backspace_, _backspace across a line break_, and _backspace into a closed word_.
+- **Errors stay local — per-char and per-word** — _wrong char left uncorrected_, _cluster of wrong chars_, _indented code line_ (per-char); _typing extras in a word_ (per-word).
+- **Whitespace syncs cleanly** — typing space mid-word advances and auto-marks the remainder missed; typing extras past a word end stays bounded to that word. _Typing extras in a word_, _under-typing a word_.
+- **Closed words are reopenable** — backspace from the next word reverts auto-missed marks. _Backspace into a closed word_.
+- **Enter mid-line is allowed, marks the rest red, and jumps** — _enter mid-line_.
+- **Stats count keystrokes, not displayed-red chars** — _single wrong char, corrected with backspace_, _enter mid-line_, _typing extras in a word_.
+- **Edge cases don't crash or behave surprisingly** — _blank line in source_, _tabs in source_, _backspace at the very start_.
 
 When we write the engine, each of these scenarios should map almost 1:1 to a unit test feeding a sequence of `input(char)` / `enter()` / `backspace()` calls and asserting on the resulting state.
 

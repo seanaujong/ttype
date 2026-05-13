@@ -15,5 +15,5 @@ Project-level goals and commands live in [../CLAUDE.md](../CLAUDE.md).
 
 - **Each doc opens with an "At a glance" abstract** — bulleted summary of the main items so a reader can skim in 10 seconds.
 - **Section headings are unnumbered and named descriptively** — `## Chill > strict`, not `## Principle 1 — Chill > strict`. The abstract is the TOC; section names are the stable interface.
-- **Cross-references are by name, never by position** — *"the self-hosting goal"*, not *"goal 4"*; *"the cross-line backspace scenario"*, not *"Scenario 7"*. This makes inserts/reorders cheap. If a referenced section doesn't have a clean name, that's a signal the name needs work.
+- **Cross-references are by name, never by position** — _"the self-hosting goal"_, not _"goal 4"_; _"the cross-line backspace scenario"_, not _"Scenario 7"_. This makes inserts/reorders cheap. If a referenced section doesn't have a clean name, that's a signal the name needs work.
 - In-paragraph enumerations of steps inside a single section can still use 1/2/3 — those aren't section headings and nothing else references them.

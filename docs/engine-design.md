@@ -2,21 +2,22 @@
 
 ## The decision
 
-The engine is a **pure state machine**: one function, `applyEvent(state, event) → state`, with no hidden inputs (no clocks, no globals, no I/O). A session is fully described by its source text + an event log; current state is *derived* from that log via a pure fold. Renderers and review are downstream consumers of the same log — they never reach into engine internals.
+The engine is a **pure state machine**: one function, `applyEvent(state, event) → state`, with no hidden inputs (no clocks, no globals, no I/O). A session is fully described by its source text + an event log; current state is _derived_ from that log via a pure fold. Renderers and review are downstream consumers of the same log — they never reach into engine internals.
 
 We picked this shape because it makes the engine **auditable, replayable, and trivially testable**:
+
 - Auditable: anything that affects engine outcomes is in the event log, by construction. No "well it depends on what time it was" surprises.
 - Replayable: a saved session (`{ text, events }`) re-applied produces the same state. Bug reports become files.
 - Testable: the engine imports nothing UI-related. Tests are plain function calls feeding events; every scenario in [scenarios.md](scenarios.md) becomes a fixture.
 
-The rest of this doc shows how the pattern works, why it's a natural fit for the *general-purpose engine* and *layerable rendering* goals in [../CLAUDE.md](../CLAUDE.md), and what we're borrowing from a famously rigorous case study of the same pattern: Pokémon Showdown's battle engine.
+The rest of this doc shows how the pattern works, why it's a natural fit for the _general-purpose engine_ and _layerable rendering_ goals in [../CLAUDE.md](../CLAUDE.md), and what we're borrowing from a famously rigorous case study of the same pattern: Pokémon Showdown's battle engine.
 
 ## What Pokémon Showdown teaches
 
 Showdown's battle engine is unusually rigorous about a few things that map directly onto ttype:
 
 1. **The engine is a pure state machine.** Same starting state + same sequence of events → identical result. No hidden inputs (no implicit clocks, no globals, no I/O). RNG is seeded so even randomness is reproducible.
-2. **The log is canonical.** Every battle is fully described by its event log + initial seed. Replaying the log reproduces the battle exactly. The log isn't a derived artifact of the battle; it *is* the battle.
+2. **The log is canonical.** Every battle is fully described by its event log + initial seed. Replaying the log reproduces the battle exactly. The log isn't a derived artifact of the battle; it _is_ the battle.
 3. **Renderers consume events, not internal state.** Showdown's web client renders battles by interpreting the same event protocol the engine emits. The engine doesn't know HTML exists.
 4. **Bug reports are replayable.** Because logs are canonical, a bug report is a log file. Maintainers reproduce locally by replaying.
 5. **Test fixtures come from real runs.** Any interesting battle becomes a regression test by saving its log + seed and asserting on the endpoint.
@@ -25,16 +26,16 @@ This is the event-sourcing / Redux / Elm pattern. Showdown is a particularly cle
 
 ## How it maps to ttype
 
-We've been edging toward this — the "engine emits a keystroke log; review consumes it" framing in [review.md](review.md) is already in this direction. The Showdown lens pushes it one step further: **the keystroke log isn't a side-output of the engine. It is the engine's input, and current state is *derived* from it.**
+We've been edging toward this — the "engine emits a keystroke log; review consumes it" framing in [review.md](review.md) is already in this direction. The Showdown lens pushes it one step further: **the keystroke log isn't a side-output of the engine. It is the engine's input, and current state is _derived_ from it.**
 
 ### The whole engine API is one function
 
 ```ts
-function applyEvent(state: State, event: Event): State
+function applyEvent(state: State, event: Event): State;
 ```
 
 - **State** = `{ text, typeableIndices, cursor, charStates }`. No timestamps, no derived counters, no UI.
-- **Event** = a tagged union: `{ kind: 'input', char, t } | { kind: 'backspace', t } | { kind: 'enter', t }`. Time is *in* the event; the engine never reads a clock.
+- **Event** = a tagged union: `{ kind: 'input', char, t } | { kind: 'backspace', t } | { kind: 'enter', t }`. Time is _in_ the event; the engine never reads a clock.
 - **Pure** — same `(state, event)` returns the same next state. No side effects.
 
 A session is `{ text, events: Event[] }`. The current state is `events.reduce(applyEvent, initialState(text))`. That's the entire model.
@@ -51,6 +52,7 @@ Consumers don't reach into engine state to "find out what happened" — they rea
 ### Replay for free
 
 A session file is `{ text, events }`. To replay any session:
+
 1. Initialize state from `text`.
 2. Fold `events` through `applyEvent`.
 
@@ -62,22 +64,22 @@ Every scenario in [scenarios.md](scenarios.md) is a sequence of events with an e
 
 ```json
 {
-  "name": "scenario-2-typo-corrected",
-  "text": "Hello",
-  "events": [
-    { "kind": "input", "char": "H", "t": 0 },
-    { "kind": "input", "char": "x", "t": 120 },
-    { "kind": "backspace", "t": 240 },
-    { "kind": "input", "char": "e", "t": 360 },
-    { "kind": "input", "char": "l", "t": 480 },
-    { "kind": "input", "char": "l", "t": 600 },
-    { "kind": "input", "char": "o", "t": 720 }
-  ],
-  "expected": {
-    "cursor": "done",
-    "charStates": ["correct","correct","correct","correct","correct"],
-    "keystrokeStats": { "correct": 6, "wrong": 1, "missed": 0 }
-  }
+	"name": "scenario-2-typo-corrected",
+	"text": "Hello",
+	"events": [
+		{"kind": "input", "char": "H", "t": 0},
+		{"kind": "input", "char": "x", "t": 120},
+		{"kind": "backspace", "t": 240},
+		{"kind": "input", "char": "e", "t": 360},
+		{"kind": "input", "char": "l", "t": 480},
+		{"kind": "input", "char": "l", "t": 600},
+		{"kind": "input", "char": "o", "t": 720}
+	],
+	"expected": {
+		"cursor": "done",
+		"charStates": ["correct", "correct", "correct", "correct", "correct"],
+		"keystrokeStats": {"correct": 6, "wrong": 1, "missed": 0}
+	}
 }
 ```
 
@@ -95,9 +97,9 @@ Tests load the fixture, apply events, assert. New scenarios — including "this 
 
 Almost nothing — the framing is the only shift:
 
-- The keystroke log stops being a *side output* of the engine and becomes its *primary input*. Consumers read events.
-- Engine state is *derived* from events, not the other way around. (Internally we may cache the latest state; conceptually it's `fold(events)`.)
-- The engine never reads a clock. Timestamps come in *with* events. Whoever creates the event (the input handler) reads the clock once, attaches `t`, hands it off.
+- The keystroke log stops being a _side output_ of the engine and becomes its _primary input_. Consumers read events.
+- Engine state is _derived_ from events, not the other way around. (Internally we may cache the latest state; conceptually it's `fold(events)`.)
+- The engine never reads a clock. Timestamps come in _with_ events. Whoever creates the event (the input handler) reads the clock once, attaches `t`, hands it off.
 
 Renderers, adapters, and review don't need to change — they already only consume what the engine produces.
 
@@ -108,39 +110,45 @@ Renderers, adapters, and review don't need to change — they already only consu
 - **Speculative rollback / client prediction.** Not needed.
 - **Battle-specific state abstractions.** The pattern, not the specifics.
 
-## Why this is also worth *learning*
+## Why this is also worth _learning_
 
 The event-sourced model is what React+Redux teaches, what Elm is built on, what databases use (write-ahead logs), what git uses (commits are events on a tree), and what every undo/redo system that doesn't suck looks like. Internalizing the pattern here means recognizing it everywhere else. We'll point out the parallels when we build.
 
 ## Adapter output shape (tentative — validate when we build adapters)
 
-The cosmetic/typeable separation is the load-bearing idea that makes the *self-hosting* goal (typing through this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware *rendering* (dim hunk headers, color `+`/`-` markers, etc.).
+The cosmetic/typeable separation is the load-bearing idea that makes the _self-hosting_ goal (typing through this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware _rendering_ (dim hunk headers, color `+`/`-` markers, etc.).
 
 The natural generalization: adapters produce **spans**, not just typeable indices. Each span covers a contiguous byte range and tags it as either typeable or cosmetic-with-a-style.
 
 ```ts
 type IngestedText = Readonly<{
-  text: string;
-  spans: ReadonlyArray<Span>;
-  words: ReadonlyArray<Word>;     // for the *words are sync points* principle
+	text: string;
+	spans: ReadonlyArray<Span>;
+	words: ReadonlyArray<Word>; // for the *words are sync points* principle
 }>;
 
 type Span = Readonly<
-  | { kind: 'typeable';  start: number; end: number }
-  | { kind: 'cosmetic';  start: number; end: number; style?: CosmeticStyle }
+	| {kind: 'typeable'; start: number; end: number}
+	| {kind: 'cosmetic'; start: number; end: number; style?: CosmeticStyle}
 >;
 
-type Word = Readonly<{ start: number; end: number }>;  // exclusive end; byte ranges in `text`
+type Word = Readonly<{start: number; end: number}>; // exclusive end; byte ranges in `text`
 
-type CosmeticStyle = 'dim' | 'diff-header' | 'diff-add' | 'diff-remove' | 'markdown-marker';
+type CosmeticStyle =
+	| 'dim'
+	| 'diff-header'
+	| 'diff-add'
+	| 'diff-remove'
+	| 'markdown-marker';
 ```
 
 Behavior:
-- The **engine** consumes only the `typeable` spans (for what's typable) and the `words` list (for sync points). The cursor is word-aware (`{ wordIndex, charIndex, extras }`); whitespace keys close the current word and advance to the next. See *words are sync points* in [typing-feel.md](typing-feel.md).
-- **Renderers** consume *all* spans plus the `words` list. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`, anchors the two-line per-word display (mainline = typed, above = target) at word boundaries. Diff renderer: applies the diff-specific styles in addition.
-- **Adapters** are the cosmetic-aware *and* word-boundary-aware layer. For v1 every adapter uses whitespace-delimited words. Later adapters can refine (a code adapter could also split on operators; a diff adapter could mark `+`/`-` line prefixes as cosmetic *and* introduce extra word boundaries) without touching the engine.
 
-This is a clean generalization of [typing-feel.md](typing-feel.md)'s *render the structure, require the content* principle. Whitespace skipping is the simplest case; word boundaries are the same kind of metadata, just used by the engine for sync rather than by the renderer for styling.
+- The **engine** consumes only the `typeable` spans (for what's typable) and the `words` list (for sync points). The cursor is word-aware (`{ wordIndex, charIndex, extras }`); whitespace keys close the current word and advance to the next. See _words are sync points_ in [typing-feel.md](typing-feel.md).
+- **Renderers** consume _all_ spans plus the `words` list. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`, anchors the two-line per-word display (mainline = typed, above = target) at word boundaries. Diff renderer: applies the diff-specific styles in addition.
+- **Adapters** are the cosmetic-aware _and_ word-boundary-aware layer. For v1 every adapter uses whitespace-delimited words. Later adapters can refine (a code adapter could also split on operators; a diff adapter could mark `+`/`-` line prefixes as cosmetic _and_ introduce extra word boundaries) without touching the engine.
+
+This is a clean generalization of [typing-feel.md](typing-feel.md)'s _render the structure, require the content_ principle. Whitespace skipping is the simplest case; word boundaries are the same kind of metadata, just used by the engine for sync rather than by the renderer for styling.
 
 ### Why this is tentative
 
@@ -155,10 +163,10 @@ We haven't built any of this yet, and the shape might want refinement when we hi
 
 We treat the above as a hypothesis, not a spec. Concretely, validate it when we build:
 
-1. The **file adapter** (the *indented code line, mid-line entry* scenario in [scenarios.md](scenarios.md)). If marking leading whitespace as a `cosmetic` span feels clean, the shape is probably right. If we end up wanting "cosmetic but only as a leading run" as its own kind, the shape needs revising.
-2. The **stdin diff adapter** / `--diff` mode (the *type a git diff, commit, or PR* case in [use-cases.md](use-cases.md)). Real `git show` output is the stress test. If we can describe a diff with spans of `cosmetic { style: 'diff-add' }` etc. and the renderer just consumes them, the design holds. If we find ourselves wanting the renderer to *also* know the input is a diff to do the right thing, the spans aren't carrying enough information.
+1. The **file adapter** (the _indented code line, mid-line entry_ scenario in [scenarios.md](scenarios.md)). If marking leading whitespace as a `cosmetic` span feels clean, the shape is probably right. If we end up wanting "cosmetic but only as a leading run" as its own kind, the shape needs revising.
+2. The **stdin diff adapter** / `--diff` mode (the _type a git diff, commit, or PR_ case in [use-cases.md](use-cases.md)). Real `git show` output is the stress test. If we can describe a diff with spans of `cosmetic { style: 'diff-add' }` etc. and the renderer just consumes them, the design holds. If we find ourselves wanting the renderer to _also_ know the input is a diff to do the right thing, the spans aren't carrying enough information.
 
-If either of those validations fails, revisit this section. The dogfood commands from the *self-hosting* goal are also the natural acceptance test.
+If either of those validations fails, revisit this section. The dogfood commands from the _self-hosting_ goal are also the natural acceptance test.
 
 ## Open questions
 
@@ -166,7 +174,7 @@ If either of those validations fails, revisit this section. The dogfood commands
 - **Where does the input handler live?** Ink's `useInput` hook in the React layer. It produces events and feeds them to the engine. The engine never touches a `KeyboardEvent`.
 - **Snapshotting for performance.** A 10,000-char session re-folds fast; for very long sessions we might cache state every N events. Defer until measured.
 - **Time format.** Lean: milliseconds since session start (`t: number`). Smaller and sufficient.
-- **Determinism of `text` ingestion.** The text the engine sees should be fully determined by the adapter + the raw input. We should serialize the *ingested* text in session files, not the raw source — otherwise a fixture's outcome could change when the adapter changes.
+- **Determinism of `text` ingestion.** The text the engine sees should be fully determined by the adapter + the raw input. We should serialize the _ingested_ text in session files, not the raw source — otherwise a fixture's outcome could change when the adapter changes.
 
 ## See also
 

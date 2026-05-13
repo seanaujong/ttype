@@ -27,19 +27,19 @@ When a value has finite, mutually exclusive shapes, encode the shape in a `kind`
 ```ts
 // bad — illegal states are representable
 type CharState = {
-  typed?: boolean;
-  correct?: boolean;
-  wrong?: boolean;
-  autoMissed?: boolean;
+	typed?: boolean;
+	correct?: boolean;
+	wrong?: boolean;
+	autoMissed?: boolean;
 };
 // what does { typed: true, correct: false, wrong: true, autoMissed: true } mean?
 
 // good — only legal states compile
 type CharState =
-  | { kind: 'untyped' }
-  | { kind: 'correct'; typedChar: string }
-  | { kind: 'wrong'; typedChar: string }
-  | { kind: 'auto-missed' };
+	| {kind: 'untyped'}
+	| {kind: 'correct'; typedChar: string}
+	| {kind: 'wrong'; typedChar: string}
+	| {kind: 'auto-missed'};
 ```
 
 The `kind` field is the **discriminator**. TypeScript narrows the type inside `switch`/`if` blocks automatically. You also can't access `typedChar` on an `untyped` state — the compiler won't let you.
@@ -50,20 +50,24 @@ Every `switch` on a discriminated union ends with a `never` assertion:
 
 ```ts
 function describe(s: CharState): string {
-  switch (s.kind) {
-    case 'untyped':     return '';
-    case 'correct':     return s.typedChar;
-    case 'wrong':       return s.typedChar;
-    case 'auto-missed': return '';
-    default: {
-      const _exhaustive: never = s;
-      return _exhaustive;
-    }
-  }
+	switch (s.kind) {
+		case 'untyped':
+			return '';
+		case 'correct':
+			return s.typedChar;
+		case 'wrong':
+			return s.typedChar;
+		case 'auto-missed':
+			return '';
+		default: {
+			const _exhaustive: never = s;
+			return _exhaustive;
+		}
+	}
 }
 ```
 
-If we later add `{ kind: 'corrected'; ... }` and forget to handle it here, the compiler errors at the `never` line. This is how we make adding a new variant *force* an audit of every consumer — exactly what we want for an engine.
+If we later add `{ kind: 'corrected'; ... }` and forget to handle it here, the compiler errors at the `never` line. This is how we make adding a new variant _force_ an audit of every consumer — exactly what we want for an engine.
 
 ## Discriminated unions over `T | null` / `T | undefined`
 
@@ -72,15 +76,13 @@ Nullables make pre-existing code silently wrong when you forget a check. Discrim
 ```ts
 // bad
 type Cursor = number | null;
-const next = cursor + 1;  // typo: cursor might be null; runtime NaN
+const next = cursor + 1; // typo: cursor might be null; runtime NaN
 
 // good
-type Cursor =
-  | { kind: 'at'; index: TypeableIndex }
-  | { kind: 'done' };
+type Cursor = {kind: 'at'; index: TypeableIndex} | {kind: 'done'};
 
 if (cursor.kind === 'at') {
-  // here, cursor.index is a TypeableIndex — guaranteed
+	// here, cursor.index is a TypeableIndex — guaranteed
 }
 ```
 
@@ -91,16 +93,18 @@ Use `null`/`undefined` only at boundaries (parsing, optional config). Inside the
 Plain `number` lets you mix `cursor`, `length`, `index-into-charStates`, `index-into-typeableIndices` — all are `number`. Brand them so they can't be confused.
 
 ```ts
-type TypeableIndex = number & { readonly __brand: 'TypeableIndex' };
-type CharIndex     = number & { readonly __brand: 'CharIndex' };
+type TypeableIndex = number & {readonly __brand: 'TypeableIndex'};
+type CharIndex = number & {readonly __brand: 'CharIndex'};
 
 // you can't pass a TypeableIndex where a CharIndex is expected
-function charAt(text: string, i: CharIndex): string { return text[i]; }
+function charAt(text: string, i: CharIndex): string {
+	return text[i];
+}
 
 // the only way to construct one is via a smart constructor that proves the invariant
 function toTypeableIndex(n: number, indices: readonly number[]): TypeableIndex {
-  if (!indices.includes(n)) throw new Error(`${n} is not typeable`);
-  return n as TypeableIndex;
+	if (!indices.includes(n)) throw new Error(`${n} is not typeable`);
+	return n as TypeableIndex;
 }
 ```
 
@@ -112,10 +116,10 @@ State is immutable. Mark it.
 
 ```ts
 type State = Readonly<{
-  text: string;
-  typeableIndices: ReadonlyArray<number>;
-  cursor: Cursor;
-  charStates: ReadonlyArray<CharState>;
+	text: string;
+	typeableIndices: ReadonlyArray<number>;
+	cursor: Cursor;
+	charStates: ReadonlyArray<CharState>;
 }>;
 ```
 
@@ -125,29 +129,29 @@ Note: `Readonly` is shallow. Nested objects need their own `Readonly` or the str
 
 ## Pure functions return new state
 
-The engine API is one function: `applyEvent(state, event) → state`. Inside it, we *never* mutate `state`. We build the next state and return it.
+The engine API is one function: `applyEvent(state, event) → state`. Inside it, we _never_ mutate `state`. We build the next state and return it.
 
 ```ts
 function applyEvent(state: State, event: Event): State {
-  switch (event.kind) {
-    case 'input': {
-      if (state.cursor.kind === 'done') return state;
-      const target = state.text[state.cursor.index];
-      const correct = event.char === target;
-      return {
-        ...state,
-        charStates: state.charStates.map((c, i) =>
-          i === state.cursor.index
-            ? (correct
-                ? { kind: 'correct', typedChar: event.char }
-                : { kind: 'wrong',   typedChar: event.char })
-            : c
-        ),
-        cursor: nextCursor(state),
-      };
-    }
-    // ...
-  }
+	switch (event.kind) {
+		case 'input': {
+			if (state.cursor.kind === 'done') return state;
+			const target = state.text[state.cursor.index];
+			const correct = event.char === target;
+			return {
+				...state,
+				charStates: state.charStates.map((c, i) =>
+					i === state.cursor.index
+						? correct
+							? {kind: 'correct', typedChar: event.char}
+							: {kind: 'wrong', typedChar: event.char}
+						: c,
+				),
+				cursor: nextCursor(state),
+			};
+		}
+		// ...
+	}
 }
 ```
 
@@ -157,16 +161,16 @@ This pairs with event-sourcing: `state = events.reduce(applyEvent, initial)`. Im
 
 Use the copy-returning versions:
 
-| mutating (avoid) | non-mutating (prefer) |
-| ---------------- | --------------------- |
-| `arr.push(x)`    | `[...arr, x]` |
-| `arr.pop()`      | `arr.slice(0, -1)` |
-| `arr.splice(...)`| spread + slice |
-| `arr.sort(...)`  | `arr.slice().sort(...)` or `arr.toSorted(...)` (ES2023+) |
-| `arr.reverse()`  | `arr.slice().reverse()` or `arr.toReversed()` |
-| `arr[i] = x`     | `arr.map((v,j) => j===i ? x : v)` |
+| mutating (avoid)  | non-mutating (prefer)                                    |
+| ----------------- | -------------------------------------------------------- |
+| `arr.push(x)`     | `[...arr, x]`                                            |
+| `arr.pop()`       | `arr.slice(0, -1)`                                       |
+| `arr.splice(...)` | spread + slice                                           |
+| `arr.sort(...)`   | `arr.slice().sort(...)` or `arr.toSorted(...)` (ES2023+) |
+| `arr.reverse()`   | `arr.slice().reverse()` or `arr.toReversed()`            |
+| `arr[i] = x`      | `arr.map((v,j) => j===i ? x : v)`                        |
 
-`ReadonlyArray<T>` from *`readonly` everywhere in state* catches most of these at compile time.
+`ReadonlyArray<T>` from _`readonly` everywhere in state_ catches most of these at compile time.
 
 ## `as const` for fixed sets
 
@@ -174,27 +178,28 @@ When you have a finite set of literal values, `as const` derives the union type 
 
 ```ts
 const EVENT_KINDS = ['input', 'backspace', 'enter'] as const;
-type EventKind = typeof EVENT_KINDS[number];  // 'input' | 'backspace' | 'enter'
+type EventKind = (typeof EVENT_KINDS)[number]; // 'input' | 'backspace' | 'enter'
 ```
 
 Add a new kind by editing the array; the type updates automatically.
 
 ## Smart constructors for invariants
 
-If a value has an invariant that the type system can't fully express (e.g., "this number is a valid typeable index for *this* text"), construct it once, in one place, and trust it everywhere else.
+If a value has an invariant that the type system can't fully express (e.g., "this number is a valid typeable index for _this_ text"), construct it once, in one place, and trust it everywhere else.
 
 ```ts
 function makeInitialState(text: string): State {
-  const typeableIndices = computeTypeableIndices(text);
-  const cursor: Cursor = typeableIndices.length === 0
-    ? { kind: 'done' }
-    : { kind: 'at', index: typeableIndices[0] as TypeableIndex };
-  return {
-    text,
-    typeableIndices,
-    cursor,
-    charStates: Array.from(text, () => ({ kind: 'untyped' as const })),
-  };
+	const typeableIndices = computeTypeableIndices(text);
+	const cursor: Cursor =
+		typeableIndices.length === 0
+			? {kind: 'done'}
+			: {kind: 'at', index: typeableIndices[0] as TypeableIndex};
+	return {
+		text,
+		typeableIndices,
+		cursor,
+		charStates: Array.from(text, () => ({kind: 'untyped' as const})),
+	};
 }
 ```
 
@@ -217,12 +222,14 @@ We'll flip these on when we start writing engine code, not retroactively.
 
 ```ts
 // bad
-function ingest(raw: any): string { return raw.trim(); }
+function ingest(raw: any): string {
+	return raw.trim();
+}
 
 // good — unknown forces a narrow at the boundary
 function ingest(raw: unknown): string {
-  if (typeof raw !== 'string') throw new Error('expected string');
-  return raw.trim();
+	if (typeof raw !== 'string') throw new Error('expected string');
+	return raw.trim();
 }
 ```
 

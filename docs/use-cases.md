@@ -10,7 +10,7 @@ Each case names the **goal** in [../CLAUDE.md](../CLAUDE.md) it validates and th
 - **Type an essay or article from a file** — `ttype path/to/essay.txt`; the file adapter doesn't require engine changes.
 - **Type from stdin** — `curl ... | ttype`, `cat ... | ttype`; identical engine state to the file case.
 - **Type a git diff, commit, or PR** — `git diff | ttype`; engine doesn't know what a diff is; `--diff` rendering is a future additive layer.
-- **Type a whole source file** — `ttype source/app.tsx`; exposes tabs / trailing whitespace / long lines / non-printables. Also the **dogfood** entry point for the *self-hosting* goal.
+- **Type a whole source file** — `ttype source/app.tsx`; exposes tabs / trailing whitespace / long lines / non-printables. Also the **dogfood** entry point for the _self-hosting_ goal.
 
 ## Smoke — built-in sample
 
@@ -33,6 +33,7 @@ five dozen liquor jugs. How vexingly quick daft zebras jump!
 - `esc` quits.
 
 End-of-run review (see [review.md](review.md) — not a score, feedback for next time):
+
 ```
 done in 18.4s
 
@@ -53,7 +54,7 @@ For drilling on a piece of writing you want to internalize.
 $ ttype ~/notes/paul-graham-makers.txt
 ```
 
-Identical screen to the *smoke* case — only the text source changed. Long text wraps to terminal width and the view scrolls as you progress.
+Identical screen to the _smoke_ case — only the text source changed. Long text wraps to terminal width and the view scrolls as you progress.
 
 **Validates the general-purpose engine goal:** adding file input must not require engine changes. If it does, the boundary between "engine" and "adapter" is leaking.
 
@@ -67,7 +68,7 @@ $ cat src/lib/parser.ts | ttype
 $ pbpaste | ttype
 ```
 
-Behaviorally identical to the *file* case. Just a different adapter feeding the same engine.
+Behaviorally identical to the _file_ case. Just a different adapter feeding the same engine.
 
 **Validates the general-purpose engine goal from the other side:** `ttype foo` and `cat foo | ttype` should produce the same in-engine state. If they don't, an adapter is doing too much (or too little).
 
@@ -83,7 +84,7 @@ $ gh pr diff 1234 | ttype
 
 In the v1 plain renderer, **every character of the diff is part of the text to type** — including `+`, `-`, ` `, and `@@` hunk markers. That's intentional: the engine doesn't know what a diff is, and we want to keep it that way.
 
-A later `--diff` flag (the *layerable rendering* goal) layers diff-awareness on top of the plain renderer: dim hunk headers, color `+`/`-` lines, optionally auto-skip the leading marker so you only type the *content* of changed lines. None of that requires engine changes — that's the whole point.
+A later `--diff` flag (the _layerable rendering_ goal) layers diff-awareness on top of the plain renderer: dim hunk headers, color `+`/`-` lines, optionally auto-skip the leading marker so you only type the _content_ of changed lines. None of that requires engine changes — that's the whole point.
 
 **Validates the layerable rendering goal** — but only when we add the `--diff` layer later. For now, this case just exercises the general-purpose engine with messy input.
 
@@ -91,7 +92,7 @@ A later `--diff` flag (the *layerable rendering* goal) layers diff-awareness on 
 
 ## Type a whole source file
 
-Mechanically the same as the *file* or *stdin* cases, but the *content* exposes UX decisions that prose doesn't.
+Mechanically the same as the _file_ or _stdin_ cases, but the _content_ exposes UX decisions that prose doesn't.
 
 ```
 $ ttype source/app.tsx
@@ -99,6 +100,7 @@ $ cat src/lib/parser.ts | ttype
 ```
 
 Things that come up:
+
 - **Tabs:** is a tab one keystroke, or expanded to N spaces?
 - **Trailing whitespace / blank lines:** part of the drill, or stripped?
 - **Very long lines:** wrap, truncate, or horizontal-scroll?
@@ -106,7 +108,7 @@ Things that come up:
 
 These decisions live in the engine's data shape, so we want them settled before we write `type Engine = ...`.
 
-**Dogfood note:** this case has a privileged role — it covers typing through *this very repo's* `.tsx`, markdown, and diff output. See the *self-hosting* goal in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
+**Dogfood note:** this case has a privileged role — it covers typing through _this very repo's_ `.tsx`, markdown, and diff output. See the _self-hosting_ goal in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
 
 ## Open questions to settle before coding
 

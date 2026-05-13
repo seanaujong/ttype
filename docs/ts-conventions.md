@@ -1,0 +1,232 @@
+# TypeScript conventions
+
+Patterns we use in ttype to make the engine **hard to misuse** and **easy to refactor**. The goal — borrowed from Yaron Minsky's phrasing in the OCaml community — is to **make illegal states unrepresentable**. If a state shouldn't exist, the compiler should refuse to let you write it down. The bug you can't compile is the bug that never ships.
+
+These conventions pair with the event-sourced engine in [engine-design.md](engine-design.md): pure functions over immutable state are easy to reason about, easy to test, and easy to replay. Mutability undoes most of that.
+
+## 1. Discriminated unions instead of flag bags
+
+When a value has finite, mutually exclusive shapes, encode the shape in a `kind` field rather than juggling flags.
+
+```ts
+// bad — illegal states are representable
+type CharState = {
+  typed?: boolean;
+  correct?: boolean;
+  wrong?: boolean;
+  autoMissed?: boolean;
+};
+// what does { typed: true, correct: false, wrong: true, autoMissed: true } mean?
+
+// good — only legal states compile
+type CharState =
+  | { kind: 'untyped' }
+  | { kind: 'correct'; typedChar: string }
+  | { kind: 'wrong'; typedChar: string }
+  | { kind: 'auto-missed' };
+```
+
+The `kind` field is the **discriminator**. TypeScript narrows the type inside `switch`/`if` blocks automatically. You also can't access `typedChar` on an `untyped` state — the compiler won't let you.
+
+## 2. Exhaustiveness checking with `never`
+
+Every `switch` on a discriminated union ends with a `never` assertion:
+
+```ts
+function describe(s: CharState): string {
+  switch (s.kind) {
+    case 'untyped':     return '';
+    case 'correct':     return s.typedChar;
+    case 'wrong':       return s.typedChar;
+    case 'auto-missed': return '';
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
+  }
+}
+```
+
+If we later add `{ kind: 'corrected'; ... }` and forget to handle it here, the compiler errors at the `never` line. This is how we make adding a new variant *force* an audit of every consumer — exactly what we want for an engine.
+
+## 3. Discriminated unions over `T | null` / `T | undefined`
+
+Nullables make pre-existing code silently wrong when you forget a check. Discriminated unions force the check.
+
+```ts
+// bad
+type Cursor = number | null;
+const next = cursor + 1;  // typo: cursor might be null; runtime NaN
+
+// good
+type Cursor =
+  | { kind: 'at'; index: TypeableIndex }
+  | { kind: 'done' };
+
+if (cursor.kind === 'at') {
+  // here, cursor.index is a TypeableIndex — guaranteed
+}
+```
+
+Use `null`/`undefined` only at boundaries (parsing, optional config). Inside the engine, everything is a union.
+
+## 4. Branded types for "this is not just any number/string"
+
+Plain `number` lets you mix `cursor`, `length`, `index-into-charStates`, `index-into-typeableIndices` — all are `number`. Brand them so they can't be confused.
+
+```ts
+type TypeableIndex = number & { readonly __brand: 'TypeableIndex' };
+type CharIndex     = number & { readonly __brand: 'CharIndex' };
+
+// you can't pass a TypeableIndex where a CharIndex is expected
+function charAt(text: string, i: CharIndex): string { return text[i]; }
+
+// the only way to construct one is via a smart constructor that proves the invariant
+function toTypeableIndex(n: number, indices: readonly number[]): TypeableIndex {
+  if (!indices.includes(n)) throw new Error(`${n} is not typeable`);
+  return n as TypeableIndex;
+}
+```
+
+Brands are zero-cost at runtime — they exist only in the type system. Use them sparingly, only where confusion would be expensive (cursor indices are a great fit).
+
+## 5. `readonly` everywhere in state
+
+State is immutable. Mark it.
+
+```ts
+type State = Readonly<{
+  text: string;
+  typeableIndices: ReadonlyArray<number>;
+  cursor: Cursor;
+  charStates: ReadonlyArray<CharState>;
+}>;
+```
+
+`Readonly<T>` makes top-level fields read-only; `ReadonlyArray<T>` removes mutating methods (`push`, `splice`, `sort` in place, etc.). If we ever write `state.cursor = ...`, the compiler stops us.
+
+Note: `Readonly` is shallow. Nested objects need their own `Readonly` or the structure needs to be flat enough that shallow is sufficient. For ttype, shallow + `ReadonlyArray` is enough — nothing nests deeply.
+
+## 6. Pure functions return new state
+
+The engine API is one function: `applyEvent(state, event) → state`. Inside it, we *never* mutate `state`. We build the next state and return it.
+
+```ts
+function applyEvent(state: State, event: Event): State {
+  switch (event.kind) {
+    case 'input': {
+      if (state.cursor.kind === 'done') return state;
+      const target = state.text[state.cursor.index];
+      const correct = event.char === target;
+      return {
+        ...state,
+        charStates: state.charStates.map((c, i) =>
+          i === state.cursor.index
+            ? (correct
+                ? { kind: 'correct', typedChar: event.char }
+                : { kind: 'wrong',   typedChar: event.char })
+            : c
+        ),
+        cursor: nextCursor(state),
+      };
+    }
+    // ...
+  }
+}
+```
+
+This pairs with event-sourcing: `state = events.reduce(applyEvent, initial)`. Immutability is what makes that fold safe — every intermediate state is a real, inspectable value.
+
+## 7. No array mutators
+
+Use the copy-returning versions:
+
+| mutating (avoid) | non-mutating (prefer) |
+| ---------------- | --------------------- |
+| `arr.push(x)`    | `[...arr, x]` |
+| `arr.pop()`      | `arr.slice(0, -1)` |
+| `arr.splice(...)`| spread + slice |
+| `arr.sort(...)`  | `arr.slice().sort(...)` or `arr.toSorted(...)` (ES2023+) |
+| `arr.reverse()`  | `arr.slice().reverse()` or `arr.toReversed()` |
+| `arr[i] = x`     | `arr.map((v,j) => j===i ? x : v)` |
+
+`ReadonlyArray<T>` from convention 5 catches most of these at compile time.
+
+## 8. `as const` for fixed sets
+
+When you have a finite set of literal values, `as const` derives the union type from the values — single source of truth.
+
+```ts
+const EVENT_KINDS = ['input', 'backspace', 'enter'] as const;
+type EventKind = typeof EVENT_KINDS[number];  // 'input' | 'backspace' | 'enter'
+```
+
+Add a new kind by editing the array; the type updates automatically.
+
+## 9. Smart constructors for invariants
+
+If a value has an invariant that the type system can't fully express (e.g., "this number is a valid typeable index for *this* text"), construct it once, in one place, and trust it everywhere else.
+
+```ts
+function makeInitialState(text: string): State {
+  const typeableIndices = computeTypeableIndices(text);
+  const cursor: Cursor = typeableIndices.length === 0
+    ? { kind: 'done' }
+    : { kind: 'at', index: typeableIndices[0] as TypeableIndex };
+  return {
+    text,
+    typeableIndices,
+    cursor,
+    charStates: Array.from(text, () => ({ kind: 'untyped' as const })),
+  };
+}
+```
+
+The constructor is the one place that gets to write `as TypeableIndex`. Everywhere else, the brand is enforced.
+
+## 10. Strict tsconfig
+
+The compiler is your fastest test. Turn it up.
+
+The current `@sindresorhus/tsconfig` base is already strict; we should additionally enable (when the engine lands):
+
+- `noUncheckedIndexedAccess: true` — `arr[0]` becomes `T | undefined`. Forces explicit handling of array bounds, which is exactly the kind of thing the engine should never get wrong.
+- `exactOptionalPropertyTypes: true` — `{ x?: string }` no longer accepts `{ x: undefined }`. Optional means "may be absent," not "may be undefined."
+
+We'll flip these on when we start writing engine code, not retroactively.
+
+## 11. Avoid `any`. Tolerate `unknown` at boundaries.
+
+`any` disables typechecking locally and silently. `unknown` is the safe alternative — it forces you to narrow before use.
+
+```ts
+// bad
+function ingest(raw: any): string { return raw.trim(); }
+
+// good — unknown forces a narrow at the boundary
+function ingest(raw: unknown): string {
+  if (typeof raw !== 'string') throw new Error('expected string');
+  return raw.trim();
+}
+```
+
+Adapters (file, stdin) are the only legitimate place for `unknown`; the engine should never see one.
+
+## A checklist for adding engine code
+
+When you write or review engine code, run through this list:
+
+- [ ] Does any new state shape have a `kind` discriminator? If it's a finite, mutually exclusive set, it should.
+- [ ] Is every `switch` on a discriminated union exhaustive (ends with `const _: never = ...`)?
+- [ ] Did I introduce any `T | null` / `T | undefined` that could be a discriminated union instead?
+- [ ] Are array fields typed as `ReadonlyArray<T>`?
+- [ ] Are object fields wrapped in `Readonly<...>` (or do they already have `readonly` modifiers)?
+- [ ] Did I use any of the mutating array methods (`push`, `splice`, `sort` in place)?
+- [ ] Did I introduce `any`? (Search for it before committing.)
+- [ ] If I added a new event kind / char state / cursor variant, did the compiler force me to handle it everywhere? If not, an `exhaustive` check is missing somewhere.
+
+## See also
+
+- [engine-design.md](engine-design.md) — the event-sourced architecture these conventions support.
+- [scenarios.md](scenarios.md) — the test cases that exercise the engine these conventions help make correct.
+- [../CLAUDE.md](../CLAUDE.md) — project-level validation workflows; the "type-level invariants" entry there cross-references this doc.

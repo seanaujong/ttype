@@ -14,7 +14,7 @@
 		"lint": "xo",
 		"lint:fix": "xo --fix",
 		"fix": "npm run format && npm run lint:fix",
-		"test": "prettier --check . && xo && ava"
+		"test": "prettier --check . && xo"
 	},
 	"files": [
 		"dist"

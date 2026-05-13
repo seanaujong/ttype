@@ -57,21 +57,21 @@ These are the demos/tests we use to check we're meeting the goals. If a change m
 
 - `npm run build` — compile `source/` → `dist/` via `tsc`
 - `npm run dev` — `tsc --watch`
-- `npm test` — runs the full check: `prettier --check . && xo && ava`
-- `npx ava test.tsx` — run tests only (skip lint/format)
-- `npx ava test.tsx -m 'greet user with a name'` — run a single test by title
-- `node dist/cli.js --name=Jane` — run the built CLI (must `npm run build` first; `bin` points at `dist/cli.js`)
+- `npm test` — gate check: `prettier --check . && xo` (ava re-added once engine tests exist; see [docs/engine-design.md](docs/engine-design.md))
+- `npm run fix` — `prettier --write` then `xo --fix`
+- `npx tsx source/cli.tsx` — run the CLI straight from source while iterating (no build step)
+- `node dist/cli.js` — run the built CLI (must `npm run build` first; `bin` points at `dist/cli.js`)
 
 ## Architecture
 
 - `source/cli.tsx` — entry point. Parses flags with `meow`, then `render(<App .../>)` from `ink`. `#!/usr/bin/env node` shebang + `"bin": "dist/cli.js"` in package.json makes the compiled output executable.
 - `source/app.tsx` — the React/Ink component tree. Ink renders React components to the terminal (`<Text>`, `<Box>`, etc. from `ink`, not the DOM).
-- `test.tsx` (at repo root, not under `source/`) — uses `ink-testing-library`'s `render` + `lastFrame()` to assert on terminal output. Imports `./source/app.js` (note the `.js` extension on a `.tsx` source — required because `"type": "module"` + NodeNext-style resolution; the `tsx` loader maps it back to `.tsx`).
+- No tests yet — the scaffold's `test.tsx` was removed because it asserted on rendering rather than typing behavior. Real tests come back with the engine (per [docs/engine-design.md](docs/engine-design.md): replayable JSON fixtures over `applyEvent`). The `ava` config in `package.json` is preserved for that day.
 
 ESM specifics that matter when editing:
 
 - `package.json` has `"type": "module"`, so relative imports must use explicit `.js` extensions even when the source is `.tsx`/`.ts`.
-- `ava` is configured to run `.ts`/`.tsx` directly via `--import=tsx` (see the `ava` block in package.json) — no separate build step needed for tests. `workerThreads: false` is set so the loader registration propagates to test files.
+- `ava` is wired to run `.ts`/`.tsx` directly via `--import=tsx` with `workerThreads: false` (so the loader registration propagates to test files). Inactive until tests come back.
 
 ## Lint/format
 

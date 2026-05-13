@@ -4,7 +4,7 @@ import {render} from 'ink';
 import meow from 'meow';
 import App from './app.js';
 
-const cli = meow(
+meow(
 	`
 	Usage
 	  $ ttype
@@ -14,11 +14,6 @@ const cli = meow(
 `,
 	{
 		importMeta: import.meta,
-		flags: {
-			name: {
-				type: 'string',
-			},
-		},
 	},
 );
 

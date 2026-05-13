@@ -1,6 +1,8 @@
 # ttype use cases
 
-Concrete walkthroughs of how someone uses ttype. These exist to validate the goals in [../CLAUDE.md](../CLAUDE.md) and to anchor the engine/adapter design *before* we start writing code. Each case names the **goal** it exercises and any **open question** it surfaces.
+Concrete walkthroughs of how someone uses ttype. We start here — before any engine code, before any type definitions — because **user flows are the cheapest test of design correctness**. If the architecture we have in mind can't comfortably express what someone trying to do X would actually do, the architecture is wrong, and we'd rather find that out from a one-page walkthrough than after writing it.
+
+Each case names the **goal** in [../CLAUDE.md](../CLAUDE.md) it validates and the **open questions** it surfaces. Together they anchor every downstream decision (in [engine-design.md](engine-design.md), [typing-feel.md](typing-feel.md), and the rest) back to concrete user behavior.
 
 ## 1. Smoke — built-in sample
 
@@ -96,7 +98,7 @@ Things that come up:
 
 These decisions live in the engine's data shape, so we want them settled before we write `type Engine = ...`.
 
-**Dogfood note:** this case has a privileged role — it covers typing through *this very repo's* `.tsx`, markdown, and diff output. See goal 5 in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
+**Dogfood note:** this case has a privileged role — it covers typing through *this very repo's* `.tsx`, markdown, and diff output. See goal 4 in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
 
 ## Open questions to settle before coding
 

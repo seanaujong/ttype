@@ -1,5 +1,16 @@
 # Engine design — event-sourced and auditable
 
+## The decision
+
+The engine is a **pure state machine**: one function, `applyEvent(state, event) → state`, with no hidden inputs (no clocks, no globals, no I/O). A session is fully described by its source text + an event log; current state is *derived* from that log via a pure fold. Renderers and review are downstream consumers of the same log — they never reach into engine internals.
+
+We picked this shape because it makes the engine **auditable, replayable, and trivially testable**:
+- Auditable: anything that affects engine outcomes is in the event log, by construction. No "well it depends on what time it was" surprises.
+- Replayable: a saved session (`{ text, events }`) re-applied produces the same state. Bug reports become files.
+- Testable: the engine imports nothing UI-related. Tests are plain function calls feeding events; every scenario in [scenarios.md](scenarios.md) becomes a fixture.
+
+The rest of this doc shows how the pattern works, why it's a natural fit for goals 1–2 in [../CLAUDE.md](../CLAUDE.md), and what we're borrowing from a famously rigorous case study of the same pattern: Pokémon Showdown's battle engine.
+
 ## What Pokémon Showdown teaches
 
 Showdown's battle engine is unusually rigorous about a few things that map directly onto ttype:
@@ -103,7 +114,7 @@ The event-sourced model is what React+Redux teaches, what Elm is built on, what 
 
 ## Adapter output shape (tentative — validate when we build adapters)
 
-The cosmetic/typeable separation is the load-bearing idea that makes goal 5 (self-hosting on this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware *rendering* (dim hunk headers, color `+`/`-` markers, etc.).
+The cosmetic/typeable separation is the load-bearing idea that makes goal 4 (self-hosting on this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware *rendering* (dim hunk headers, color `+`/`-` markers, etc.).
 
 The natural generalization: adapters produce **spans**, not just typeable indices. Each span covers a contiguous byte range and tags it as either typeable or cosmetic-with-a-style.
 
@@ -144,7 +155,7 @@ We treat the above as a hypothesis, not a spec. Concretely, validate it when we 
 1. The **file adapter** (Scenario 9 in [scenarios.md](scenarios.md) — indented code line). If marking leading whitespace as a `cosmetic` span feels clean, the shape is probably right. If we end up wanting "cosmetic but only as a leading run" as its own kind, the shape needs revising.
 2. The **stdin diff adapter** / `--diff` mode (use case 4). Real `git show` output is the stress test. If we can describe a diff with spans of `cosmetic { style: 'diff-add' }` etc. and the renderer just consumes them, the design holds. If we find ourselves wanting the renderer to *also* know the input is a diff to do the right thing, the spans aren't carrying enough information.
 
-If either of those validations fails, revisit this section. The dogfood commands from goal 5 are also the natural acceptance test.
+If either of those validations fails, revisit this section. The dogfood commands from goal 4 are also the natural acceptance test.
 
 ## Open questions
 

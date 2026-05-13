@@ -2,7 +2,7 @@
 
 ## The reframe
 
-Other type racers end with a **score**: WPM, accuracy, rank. Those numbers serve competitive ranking. That isn't the goal here. Seana's goals are:
+Other type racers end with a **score**: WPM, accuracy, rank. Those numbers serve competitive ranking. That isn't the goal here. Sean's goals are:
 
 - Internalize content (essays, source files, PRs) by typing it.
 - Notice and improve typing habits over time.

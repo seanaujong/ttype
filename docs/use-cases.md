@@ -96,6 +96,8 @@ Things that come up:
 
 These decisions live in the engine's data shape, so we want them settled before we write `type Engine = ...`.
 
+**Dogfood note:** this case has a privileged role — it covers typing through *this very repo's* `.tsx`, markdown, and diff output. See goal 5 in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
+
 ## Open questions to settle before coding
 
 A consolidated list — we don't need final answers on all of these today, but the answers shape the engine's types:

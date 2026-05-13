@@ -22,9 +22,9 @@ One wrong character should not tank a run, halt the cursor, or feel like a big d
 - No strict mode in v1. We can add `--strict` later if anyone actually wants it; don't build it speculatively.
 - End-of-run summary uses lenient accuracy (see Principle 4) — using backspace to fix a mistake is not penalized.
 
-## Principle 2 — Render whitespace, don't require it
+## Principle 2 — Render the structure, require the content
 
-The screen shows structural whitespace; ttype doesn't make you type it.
+The screen shows structural / cosmetic characters in their original positions, but ttype doesn't make you type them. Whitespace is the simplest example; later this same principle handles diff line markers (`+`/`-`/` `, `@@` hunk headers) and possibly markdown structural chars. Adapters are the layer that decides what's cosmetic for a given input; the engine never branches on input kind. See [engine-design.md](engine-design.md) for the span shape this implies.
 
 **Rules:**
 - **Leading whitespace** on a line: rendered (so the shape is intact), but the cursor *starts* at the first non-whitespace character.

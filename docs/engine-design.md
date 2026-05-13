@@ -101,6 +101,51 @@ Renderers, adapters, and review don't need to change — they already only consu
 
 The event-sourced model is what React+Redux teaches, what Elm is built on, what databases use (write-ahead logs), what git uses (commits are events on a tree), and what every undo/redo system that doesn't suck looks like. Internalizing the pattern here means recognizing it everywhere else. We'll point out the parallels when we build.
 
+## Adapter output shape (tentative — validate when we build adapters)
+
+The cosmetic/typeable separation is the load-bearing idea that makes goal 5 (self-hosting on this repo's `.tsx`, docs, and diffs — see [../CLAUDE.md](../CLAUDE.md)) work. The shape sketched earlier in this doc (`typeableIndices: ReadonlyArray<number>`) is sufficient for "skip leading whitespace" but doesn't carry enough information for diff- or markdown-aware *rendering* (dim hunk headers, color `+`/`-` markers, etc.).
+
+The natural generalization: adapters produce **spans**, not just typeable indices. Each span covers a contiguous byte range and tags it as either typeable or cosmetic-with-a-style.
+
+```ts
+type IngestedText = Readonly<{
+  text: string;
+  spans: ReadonlyArray<Span>;
+}>;
+
+type Span = Readonly<
+  | { kind: 'typeable';  start: number; end: number }
+  | { kind: 'cosmetic';  start: number; end: number; style?: CosmeticStyle }
+>;
+
+type CosmeticStyle = 'dim' | 'diff-header' | 'diff-add' | 'diff-remove' | 'markdown-marker';
+```
+
+Behavior:
+- The **engine** consumes only the `typeable` spans. The cursor advances within a typeable span and jumps to the next typeable span at boundaries. `text` is the source of truth for what to display; spans describe where the cursor can land and what to style.
+- **Renderers** consume *all* spans. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`. Diff renderer: applies the styles. Same engine, different rendering layers — that's goal 2 (layerable rendering).
+- **Adapters** are the cosmetic-aware layer. The file adapter might mark only leading whitespace as cosmetic. The stdin-from-`git-diff` adapter (or a `--diff` mode) marks `@@` hunk headers, `+`/`-`/` ` line prefixes, and `diff --git` headers as cosmetic, with appropriate styles.
+
+This is a clean generalization of [typing-feel.md](typing-feel.md)'s Principle 2 from "render whitespace, don't require it" to **"render the structure, require typing of the content."** Whitespace skipping is just the simplest case.
+
+### Why this is tentative
+
+We haven't built any of this yet, and the shape might want refinement when we hit real inputs:
+
+- **Spans vs. per-char tagging.** Spans are more compact than tagging every char, but if cosmetic/typeable interleave heavily (e.g., ANSI color codes mid-line), per-char tagging might be simpler. We'll know when we try the first adapter that does anything non-trivial.
+- **Style enum vs. open string.** `CosmeticStyle` as a closed union is the [ts-conventions.md](ts-conventions.md)-correct call now, but renderers may want extensibility (e.g., syntax highlighting later). If the union grows past ~6 variants, reconsider.
+- **Where does `IngestedText` live?** It's an adapter output, but the engine needs the typeable spans to compute the initial cursor and state. Probably: `makeInitialState(ingested: IngestedText): State`. The engine stores spans in state (or a derived `typeableIndices` cache); rendering reads them from state alongside `text`.
+- **Boundary cases**: zero-length cosmetic spans, overlapping spans (should never happen but the type permits it — maybe non-overlap is a smart-constructor invariant), empty input.
+
+### Validation plan
+
+We treat the above as a hypothesis, not a spec. Concretely, validate it when we build:
+
+1. The **file adapter** (Scenario 9 in [scenarios.md](scenarios.md) — indented code line). If marking leading whitespace as a `cosmetic` span feels clean, the shape is probably right. If we end up wanting "cosmetic but only as a leading run" as its own kind, the shape needs revising.
+2. The **stdin diff adapter** / `--diff` mode (use case 4). Real `git show` output is the stress test. If we can describe a diff with spans of `cosmetic { style: 'diff-add' }` etc. and the renderer just consumes them, the design holds. If we find ourselves wanting the renderer to *also* know the input is a diff to do the right thing, the spans aren't carrying enough information.
+
+If either of those validations fails, revisit this section. The dogfood commands from goal 5 are also the natural acceptance test.
+
 ## Open questions
 
 - **Event granularity.** Is "type a char" one event or two (`keypress` + `process`)? Lean: one. The engine doesn't see raw keyboard events; it only sees the semantic event after the React-layer input handler classifies it.

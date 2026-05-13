@@ -8,6 +8,9 @@ Concrete, frame-by-frame walkthroughs of how ttype responds to keystrokes. Each 
 - **Single wrong char, corrected with backspace** — wrong char goes red; backspace clears it; retype turns it green; the wrong keystroke still counts in stats.
 - **Wrong char left uncorrected; future chars still green** — the headline anti-pattern from strict trainers: we don't stain the tail.
 - **Cluster of wrong chars; no cascade** — three wrong keys in a row mark three red chars, not a region.
+- **Typing extras in a word (drift)** — overtyping a word produces extras; the next space syncs cleanly to the next word; second-word drift is contained.
+- **Under-typing a word, then advancing with space** — typing space mid-word closes the word; remaining chars are auto-missed; cursor jumps to next word.
+- **Backspace into a closed word** — backspace from the start of a word reopens the previous word; auto-missed chars revert to untyped.
 - **Enter at proper end of line** — leading whitespace on the next line is rendered but auto-skipped; cursor lands on the first non-whitespace char.
 - **Enter mid-line** — allowed; remaining untyped chars on the line are auto-marked red as "missed"; cursor jumps to next line.
 - **Backspace across a line break** — symmetric with forward motion; retreats into the previous line when current line has nothing to retreat over.
@@ -28,6 +31,9 @@ Each cell below represents one character of the **source** text. The state chang
 | `[X]`  | cursor here — X is next to type | inverse-video highlight |
 | `·`    | display-only char (auto-skipped: leading whitespace, blank line, etc.) | dim gray |
 | `↵`    | end-of-line marker, shown when relevant | (only in these docs, not on screen) |
+| `{XY}` | extras typed past the end of the current word | extras list, not part of source |
+
+These cells reflect the **engine state** at each frame. The *rendering* (mainline = typed, above-line = target) is described in [typing-feel.md](typing-feel.md) and is a separate concern — the engine state is what tests assert on.
 
 A "frame" shows the source text with its current per-cell state. Below each frame, a short note explains the engine state if it isn't obvious.
 
@@ -131,6 +137,110 @@ Frame 2 — user types `o world` (7 correct):
 ```
 
 Stats: 8 correct, 3 wrong. Accuracy = 8/11 ≈ 72.7%.
+
+---
+
+## Typing extras in a word (drift)
+
+**Tests:** *words are sync points* from [typing-feel.md](typing-feel.md) — drift inside a word doesn't cascade past the next whitespace.
+
+Source: `Hello world` (two words: `Hello`, `world`)
+
+```
+Frame 0:
+  [H]ello world
+
+Frame 1 — user types `Hxx` (1 correct + 2 wrong in word "Hello"):
+  ✓H✗e✗l[l]o world
+  → 'e' and 'l' marked red. Cursor at charIndex 3 of "Hello".
+
+Frame 2 — user types `ell` (3 more wrong; the 7th key is past the end of "Hello"):
+  ✓H✗e✗l✗l✗o{l} world
+  → All 5 positions in "Hello" are now wrong-marked. One extra char 'l' is in the
+    extras list for "Hello". Cursor is in extras territory.
+
+Frame 3 — user types `o` (another extra):
+  ✓H✗e✗l✗l✗o{lo} world
+  → extras = ['l', 'o']. Still in "Hello".
+
+Frame 4 — user types space (sync!):
+  ✓H✗e✗l✗l✗o{lo} [w]orld
+  → "Hello" closes. Cursor advances to "world", charIndex=0.
+  → All red is now in "Hello". "world" is clean.
+
+Frame 5 — user types `world`:
+  ✓H✗e✗l✗l✗o{lo} ✓w✓o✓r✓l✓d
+  → "world" complete in green. Run done.
+```
+
+Stats: 6 correct keystrokes (`H` and `world`), 5 wrong keystrokes in "Hello", 2 extras in "Hello".
+
+**The key invariant:** without word-sync, every char of "world" would be ✗ too because the cursor would have drifted past it. With word-sync, the damage is bounded to "Hello."
+
+---
+
+## Under-typing a word, then advancing with space
+
+**Tests:** *words are sync points* — typing space before finishing a word closes the word; remaining chars become missed; cursor jumps to next word.
+
+Source: `Hello world`
+
+```
+Frame 0:
+  [H]ello world
+
+Frame 1 — user types `Hel` (3 correct chars):
+  ✓H✓e✓l[l]o world
+
+Frame 2 — user types space (mid-word!):
+  ✓H✓e✓l✗l✗o [w]orld
+  → "Hello" closes. The 2 untyped chars 'l' and 'o' become auto-missed (red, but
+    tagged as "missed" in stats, not "wrong" — same category as Enter mid-line).
+  → Cursor advances to "world".
+
+Frame 3 — user types `world`:
+  ✓H✓e✓l✗l✗o ✓w✓o✓r✓l✓d
+  → run complete.
+```
+
+Stats: 8 correct keystrokes, 0 wrong, 2 missed.
+
+This is *useful* behavior — sometimes you want to abandon a word and move on without rewinding. The space is the "I'm done, next" signal.
+
+---
+
+## Backspace into a closed word
+
+**Tests:** *words are sync points* + *correction is cheap and obvious* — backspace from the start of a word reopens the previous word; auto-missed chars revert to untyped.
+
+Source: `Hello world`
+
+Continuing from the previous scenario's Frame 2 state:
+
+```
+Frame A:
+  ✓H✓e✓l✗l✗o [w]orld
+  → "world" hasn't been typed yet; cursor at charIndex 0 of "world".
+
+Frame B — user presses backspace:
+  ✓H✓e✓l✗l[o] world
+  → Cursor retreats into "Hello". Lands on the last char ('o'). The auto-missed
+    mark on 'o' reverts to untyped. "world" is still clean.
+
+Frame C — user presses backspace again:
+  ✓H✓e✓l[l]o world
+  → Cursor on 'l' (charIndex 3). Auto-missed mark on 'l' reverted to untyped.
+
+Frame D — user types `lo`:
+  ✓H✓e✓l✓l✓o[ ]world
+  → "Hello" complete and green. Cursor on the space, awaiting it as a normal sync.
+
+Frame E — user types space, then `world`:
+  ✓H✓e✓l✓l✓o ✓w✓o✓r✓l✓d
+  → run complete with zero errors.
+```
+
+The key idea: **reopening past words is just folding a shorter event list.** State at any point is `events.reduce(applyEvent, initial)` (see [engine-design.md](engine-design.md)) — so "revert to a non-broken render state" requires no special logic. Backspace just shortens the event list one step at a time; rendering follows.
 
 ---
 
@@ -362,13 +472,15 @@ Frame 1 — user presses backspace:
 
 ## What these scenarios collectively prove
 
-If the engine passes all eleven, we know:
+If the engine passes all of them, we know:
 
-- **The cursor only ever rests on a typeable index** — demonstrated by the *enter at proper end of line*, *blank line in source*, *indented code line*, and *tabs in source* scenarios.
-- **Forward motion and backward motion are symmetric and cross line breaks** — demonstrated by *single wrong char, corrected with backspace* and *backspace across a line break*.
-- **Errors stay local; no cascading red** — demonstrated by *wrong char left uncorrected*, *cluster of wrong chars*, and *indented code line*.
+- **The cursor lands on the right place** — at typeable positions, advancing word-by-word as appropriate. Demonstrated by *enter at proper end of line*, *blank line in source*, *indented code line*, *tabs in source*.
+- **Forward and backward motion are symmetric** — cross line breaks and word breaks. Demonstrated by *single wrong char, corrected with backspace*, *backspace across a line break*, and *backspace into a closed word*.
+- **Errors stay local — per-char and per-word** — *wrong char left uncorrected*, *cluster of wrong chars*, *indented code line* (per-char); *typing extras in a word* (per-word).
+- **Whitespace syncs cleanly** — typing space mid-word advances and auto-marks the remainder missed; typing extras past a word end stays bounded to that word. *Typing extras in a word*, *under-typing a word*.
+- **Closed words are reopenable** — backspace from the next word reverts auto-missed marks. *Backspace into a closed word*.
 - **Enter mid-line is allowed, marks the rest red, and jumps** — *enter mid-line*.
-- **Stats count keystrokes, not displayed-red chars** — *single wrong char, corrected with backspace* and *enter mid-line*.
+- **Stats count keystrokes, not displayed-red chars** — *single wrong char, corrected with backspace*, *enter mid-line*, *typing extras in a word*.
 - **Edge cases don't crash or behave surprisingly** — *blank line in source*, *tabs in source*, *backspace at the very start*.
 
 When we write the engine, each of these scenarios should map almost 1:1 to a unit test feeding a sequence of `input(char)` / `enter()` / `backspace()` calls and asserting on the resulting state.

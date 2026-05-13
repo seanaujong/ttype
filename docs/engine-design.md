@@ -122,6 +122,7 @@ The natural generalization: adapters produce **spans**, not just typeable indice
 type IngestedText = Readonly<{
   text: string;
   spans: ReadonlyArray<Span>;
+  words: ReadonlyArray<Word>;     // for the *words are sync points* principle
 }>;
 
 type Span = Readonly<
@@ -129,15 +130,17 @@ type Span = Readonly<
   | { kind: 'cosmetic';  start: number; end: number; style?: CosmeticStyle }
 >;
 
+type Word = Readonly<{ start: number; end: number }>;  // exclusive end; byte ranges in `text`
+
 type CosmeticStyle = 'dim' | 'diff-header' | 'diff-add' | 'diff-remove' | 'markdown-marker';
 ```
 
 Behavior:
-- The **engine** consumes only the `typeable` spans. The cursor advances within a typeable span and jumps to the next typeable span at boundaries. `text` is the source of truth for what to display; spans describe where the cursor can land and what to style.
-- **Renderers** consume *all* spans. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`. Diff renderer: applies the styles. Same engine, different rendering layers — that's the *layerable rendering* goal.
-- **Adapters** are the cosmetic-aware layer. The file adapter might mark only leading whitespace as cosmetic. The stdin-from-`git-diff` adapter (or a `--diff` mode) marks `@@` hunk headers, `+`/`-`/` ` line prefixes, and `diff --git` headers as cosmetic, with appropriate styles.
+- The **engine** consumes only the `typeable` spans (for what's typable) and the `words` list (for sync points). The cursor is word-aware (`{ wordIndex, charIndex, extras }`); whitespace keys close the current word and advance to the next. See *words are sync points* in [typing-feel.md](typing-feel.md).
+- **Renderers** consume *all* spans plus the `words` list. Plain renderer: dims `cosmetic` spans, normal-styles `typeable`, anchors the two-line per-word display (mainline = typed, above = target) at word boundaries. Diff renderer: applies the diff-specific styles in addition.
+- **Adapters** are the cosmetic-aware *and* word-boundary-aware layer. For v1 every adapter uses whitespace-delimited words. Later adapters can refine (a code adapter could also split on operators; a diff adapter could mark `+`/`-` line prefixes as cosmetic *and* introduce extra word boundaries) without touching the engine.
 
-This is a clean generalization of [typing-feel.md](typing-feel.md)'s *render the structure, require the content* principle. Whitespace skipping is just the simplest case.
+This is a clean generalization of [typing-feel.md](typing-feel.md)'s *render the structure, require the content* principle. Whitespace skipping is the simplest case; word boundaries are the same kind of metadata, just used by the engine for sync rather than by the renderer for styling.
 
 ### Why this is tentative
 

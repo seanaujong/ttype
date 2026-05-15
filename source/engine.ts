@@ -5,7 +5,9 @@ export type State = {
 	endedAt: number | undefined;
 };
 
-export type Action = {kind: 'TYPE_CHAR'; char: string} | {kind: 'BACKSPACE'};
+export type Action =
+	| {kind: 'TYPE_CHAR'; char: string; at: number}
+	| {kind: 'BACKSPACE'};
 
 export function initialState(text: string): State {
 	return {
@@ -28,10 +30,10 @@ export function reducer(state: State, action: Action): State {
 			return {
 				...state,
 				keystrokes: nextKeystrokes,
-				startedAt: state.startedAt ?? Date.now(),
+				startedAt: state.startedAt ?? action.at,
 				endedAt:
 					nextKeystrokes.length === state.text.length
-						? Date.now()
+						? action.at
 						: state.endedAt,
 			};
 		}
@@ -44,7 +46,7 @@ export function reducer(state: State, action: Action): State {
 		}
 
 		default: {
-			const _exhaustive: never = action;
+			action satisfies never;
 			return state;
 		}
 	}

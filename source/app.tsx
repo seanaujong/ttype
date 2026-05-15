@@ -27,7 +27,7 @@ export default function App() {
 		if (key.backspace || key.delete) {
 			dispatch({kind: 'BACKSPACE'});
 		} else if (input) {
-			dispatch({kind: 'TYPE_CHAR', char: input});
+			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
 		}
 	});
 

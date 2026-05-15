@@ -26,6 +26,8 @@ export default function App() {
 	useInput((input, key) => {
 		if (key.backspace || key.delete) {
 			dispatch({kind: 'BACKSPACE'});
+		} else if (key.escape) {
+			dispatch({kind: 'RESET'});
 		} else if (input) {
 			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
 		}

@@ -7,7 +7,8 @@ export type State = {
 
 export type Action =
 	| {kind: 'TYPE_CHAR'; char: string; at: number}
-	| {kind: 'BACKSPACE'};
+	| {kind: 'BACKSPACE'}
+	| {kind: 'RESET'};
 
 export function initialState(text: string): State {
 	return {
@@ -43,6 +44,10 @@ export function reducer(state: State, action: Action): State {
 				...state,
 				keystrokes: state.keystrokes.slice(0, -1),
 			};
+		}
+
+		case 'RESET': {
+			return initialState(state.text);
 		}
 
 		default: {

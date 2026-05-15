@@ -73,3 +73,17 @@ test('BACKSPACE preserves text, startedAt, and endedAt', t => {
 	t.is(next.startedAt, 1000);
 	t.is(next.endedAt, undefined);
 });
+
+test('RESET clears keystrokes and timestamps, preserves text', t => {
+	const first = reducer(initialState('hello'), {
+		kind: 'TYPE_CHAR',
+		char: 'h',
+		at: 1000,
+	});
+	const reset = reducer(first, {kind: 'RESET'});
+
+	t.deepEqual(reset.keystrokes, []);
+	t.is(reset.startedAt, undefined);
+	t.is(reset.endedAt, undefined);
+	t.is(reset.text, 'hello');
+});

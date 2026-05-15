@@ -1,12 +1,58 @@
-import React, {useState} from 'react';
+import React, {useReducer} from 'react';
 import {Box, Text, useInput} from 'ink';
 
 const sampleText = 'The quick brown fox jumps over the lazy dog.';
 
+type State = {
+	keystrokes: string[];
+	startedAt: number | undefined;
+	endedAt: number | undefined;
+};
+
+type Action = {type: 'TYPE_CHAR'; char: string} | {type: 'BACKSPACE'};
+
+const initialState: State = {
+	keystrokes: [],
+	startedAt: undefined,
+	endedAt: undefined,
+};
+
+function reducer(state: State, action: Action): State {
+	switch (action.type) {
+		case 'TYPE_CHAR': {
+			if (state.keystrokes.length >= sampleText.length) {
+				// Cap reached; no-op, return same state
+				return state;
+			}
+
+			const nextKeystrokes = [...state.keystrokes, action.char];
+			return {
+				keystrokes: nextKeystrokes,
+				startedAt: state.startedAt ?? Date.now(),
+				endedAt:
+					nextKeystrokes.length === sampleText.length
+						? Date.now()
+						: state.endedAt,
+			};
+		}
+
+		case 'BACKSPACE': {
+			return {
+				...state,
+				keystrokes: state.keystrokes.slice(0, -1),
+			};
+		}
+
+		default: {
+			const _exhaustive: never = action;
+			return state;
+		}
+	}
+}
+
 export default function App() {
-	const [keystrokes, setKeystrokes] = useState<string[]>([]);
-	const [startedAt, setStartedAt] = useState<number | undefined>(undefined);
-	const [endedAt, setEndedAt] = useState<number | undefined>(undefined);
+	const [state, dispatch] = useReducer(reducer, initialState);
+	const {keystrokes, startedAt, endedAt} = state;
 
 	const isDone = keystrokes.length === sampleText.length;
 
@@ -27,17 +73,9 @@ export default function App() {
 
 	useInput((input, key) => {
 		if (key.backspace || key.delete) {
-			setKeystrokes(prev => prev.slice(0, -1));
-		} else if (input && keystrokes.length < sampleText.length) {
-			if (startedAt === undefined) {
-				setStartedAt(Date.now());
-			}
-
-			if (keystrokes.length + 1 === sampleText.length) {
-				setEndedAt(Date.now());
-			}
-
-			setKeystrokes(prev => [...prev, input]);
+			dispatch({type: 'BACKSPACE'});
+		} else if (input) {
+			dispatch({type: 'TYPE_CHAR', char: input});
 		}
 	});
 

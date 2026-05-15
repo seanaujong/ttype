@@ -5,7 +5,7 @@ export type State = {
 	endedAt: number | undefined;
 };
 
-export type Action = {type: 'TYPE_CHAR'; char: string} | {type: 'BACKSPACE'};
+export type Action = {kind: 'TYPE_CHAR'; char: string} | {kind: 'BACKSPACE'};
 
 export function initialState(text: string): State {
 	return {
@@ -17,7 +17,7 @@ export function initialState(text: string): State {
 }
 
 export function reducer(state: State, action: Action): State {
-	switch (action.type) {
+	switch (action.kind) {
 		case 'TYPE_CHAR': {
 			if (state.keystrokes.length >= state.text.length) {
 				// Cap reached; no-op, return same state

@@ -25,9 +25,9 @@ export default function App() {
 
 	useInput((input, key) => {
 		if (key.backspace || key.delete) {
-			dispatch({type: 'BACKSPACE'});
+			dispatch({kind: 'BACKSPACE'});
 		} else if (input) {
-			dispatch({type: 'TYPE_CHAR', char: input});
+			dispatch({kind: 'TYPE_CHAR', char: input});
 		}
 	});
 

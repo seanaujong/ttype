@@ -31,6 +31,7 @@
 		"ava": "^5.2.0",
 		"chalk": "^5.2.0",
 		"eslint-config-xo-react": "^0.27.0",
+		"eslint-plugin-eslint-comments": "^3.2.0",
 		"eslint-plugin-react": "^7.32.2",
 		"eslint-plugin-react-hooks": "^4.6.0",
 		"ink-testing-library": "^3.0.0",
@@ -52,12 +53,21 @@
 	"xo": {
 		"extends": "xo-react",
 		"prettier": true,
+		"plugins": [
+			"eslint-comments"
+		],
 		"rules": {
 			"react/prop-types": "off",
 			"unicorn/expiring-todo-comments": "off",
 			"unicorn/prevent-abbreviations": "off",
 			"unicorn/no-array-reduce": "off",
-			"unicorn/no-array-callback-reference": "off"
+			"unicorn/no-array-callback-reference": "off",
+			"eslint-comments/require-description": [
+				"error",
+				{
+					"ignore": []
+				}
+			]
 		}
 	},
 	"prettier": "@vdemedes/prettier-config"

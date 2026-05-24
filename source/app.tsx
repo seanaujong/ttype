@@ -1,5 +1,5 @@
-import React, {useReducer} from 'react';
 import {Box, Text, useInput} from 'ink';
+import React, {useMemo, useReducer} from 'react';
 import {initialState, reducer} from './engine.js';
 
 type Props = {
@@ -9,6 +9,24 @@ type Props = {
 export default function App({text: initialText}: Props) {
 	const [state, dispatch] = useReducer(reducer, initialState(initialText));
 	const {text, keystrokes, startedAt, endedAt} = state;
+
+	// Recomputed only when text changes. Re-running this loop on every keystroke
+	// is wasted work — line structure is a property of the source, not of typing
+	// progress.
+	const {lines, lineStarts} = useMemo(() => {
+		const lines = text.split('\n');
+
+		const lineStarts: number[] = [];
+		let pos = 0;
+		for (const line of lines) {
+			lineStarts.push(pos);
+			pos += line.length + 1;
+		}
+
+		return {lines, lineStarts};
+	}, [text]);
+
+	const cursorLine = text.slice(0, keystrokes.length).split('\n').length - 1;
 
 	const isDone = keystrokes.length === text.length;
 
@@ -44,9 +62,10 @@ export default function App({text: initialText}: Props) {
 
 	return (
 		<Box flexDirection="column">
+			{}
 			<Text>
 				{[...text].map((char, i) => (
-					// eslint-disable-next-line react/no-array-index-key
+					// eslint-disable-next-line react/no-array-index-key -- list is fixed-length and never reorders; index is the natural identity
 					<Text key={i} color={colorFor(i)}>
 						{char}
 					</Text>

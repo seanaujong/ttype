@@ -1,6 +1,6 @@
 # Rendering
 
-Where [engine-design.md](engine-design.md) covers _what the engine knows_, this doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`; the renderer turns those into a frame on the terminal each tick. The renderer is allowed to be opinionated about presentation; the engine never is.
+This doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`; the renderer turns those into a frame on the terminal each tick. The renderer is allowed to be opinionated about presentation; the engine never is.
 
 ## At a glance
 
@@ -12,7 +12,7 @@ Where [engine-design.md](engine-design.md) covers _what the engine knows_, this 
 
 ## Layerable rendering
 
-[CLAUDE.md](../CLAUDE.md)'s _layerable rendering_ goal: a default renderer handles any text. Source-kind-aware features (diff hunk dimming, syntax coloring, markdown structure) are layers _on top of_ the default — additive, opt-in, outside the engine.
+A default renderer handles any text. Source-kind-aware features (diff hunk dimming, syntax coloring, markdown structure) are layers _on top of_ the default — additive, opt-in, outside the engine.
 
 The discipline: the engine doesn't know what its input "is." A diff, a TypeScript file, and a paragraph of prose all flow through the same `applyEvent(state, event) → state`. If the engine ever needs to ask "is this a diff?", we've drifted. The rendering layer is where that question becomes legal — and even there, it's answered by _which renderer is plugged in_, not by branching inside one renderer.
 
@@ -79,7 +79,7 @@ Line-windowing is the floor: it always works. Chunking is the ceiling: better UX
 Some tools pick "show one screen at a time, user advances explicitly." We don't, because:
 
 - It introduces a mode switch that breaks typing rhythm.
-- It requires the user to think about the rendering — anti the _chill > strict_ principle in [typing-feel.md](typing-feel.md).
+- It requires the user to think about the rendering — anti the chill-not-strict typing principle.
 - Continuous scrolling via semantic chunks is the experience editors already trained users to expect.
 
 ### Why not single-line / Monkeytype-style
@@ -88,7 +88,7 @@ A few sites show just the current line plus a sliver of context. This works for 
 
 ## Cursor highlight
 
-_(stub — fill in when implemented; cross-reference [typing-feel.md](typing-feel.md)'s "Cursor is visible and obvious" principle.)_
+_(stub — fill in when implemented.)_
 
 The next-to-type character gets an **inverse-video background**, not a thin caret. Carets get lost against monospaced text on dark themes; inverse video doesn't.
 
@@ -113,18 +113,6 @@ When a single source line exceeds the terminal's column count, the terminal wrap
 
 The disciplined version is the second. The pragmatic first cut is the first. We pick later, when we have actual content that exhibits the problem.
 
-## Stages of implementation
-
-The renderer doesn't need to land all at once. Suggested ordering, each useful on its own:
-
-- **Line-window viewport** — fixed line count around the cursor. The dumb baseline that fixes "typing falls off the screen." Forces solving the per-character index math (rendering a slice while preserving correct coloring), which all later stages also need.
-- **Blank-line chunker as default** — replace the raw line window with chunk-based windowing using blank-line splits. Same render logic, smarter window selection.
-- **Per-input chunkers + adapter wiring** — `--diff` swaps in a hunk-based chunker; `--code` (or file-extension auto-detect) swaps in a code chunker. Engine still untouched. This is the moment _layerable rendering_ actually delivers.
-- **Status row** — once the viewport renders a fixed shape, the status row is just another line at the bottom.
-- **Cursor highlight** — additive to all of the above, doesn't depend on viewport completion.
-
-Order is suggestive, not strict — cursor highlight could land first if it's the smaller satisfaction.
-
 ## Engine implications
 
 Nothing here changes the engine. The renderer reads from engine state; the engine doesn't know what's being rendered. Specifically:
@@ -140,8 +128,4 @@ If the renderer ever needs the engine to track something for it (e.g., "the rend
 - **Dynamic viewport size**: read `process.stdout.rows` and react to resize via `SIGWINCH`? Worth doing once the static-size version is solid.
 - **Scroll-off**: sticky-middle is the default; some editors prefer a few rows of look-ahead (cursor lands ~⅓ from the bottom). UX preference; pick after dogfooding.
 - **Chunk boundary cursor**: what happens when the cursor is exactly at a chunk boundary — render the chunk before, or the chunk after, or both? Default: the chunk after, since the user is about to type into it.
-- **Skipped whitespace** (per [typing-feel.md](typing-feel.md)'s _render the structure, require the content_): rendered chars vs. typeable chars diverge. Per-character coloring and cursor positioning need the right index. Engine implications already documented in typing-feel.md; renderer needs the typeable-index map handed in alongside the cursor.
-
----
-
-**See also:** [engine-design.md](engine-design.md) for what the engine guarantees the renderer can rely on; [typing-feel.md](typing-feel.md) for the UX principles that constrain renderer choices; [../CLAUDE.md](../CLAUDE.md) for the project's overall goals including _layerable rendering_ and _self-hosting_.
+- **Skipped whitespace**: when the typing path skips structural whitespace (leading indentation, blank lines), rendered chars vs. typeable chars diverge. Per-character coloring and cursor positioning need the right index. The renderer needs a typeable-index map handed in alongside the cursor — engine-side concern that surfaces here.

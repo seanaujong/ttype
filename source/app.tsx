@@ -56,6 +56,8 @@ export default function App({text: initialText}: Props) {
 			dispatch({kind: 'BACKSPACE'});
 		} else if (key.escape) {
 			dispatch({kind: 'RESET'});
+		} else if (key.return) {
+			dispatch({kind: 'TYPE_CHAR', char: '\n', at: Date.now()});
 		} else if (input) {
 			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
 		}

@@ -1,0 +1,14 @@
+{
+	"name": "typing 'a\\nb' correctly",
+	"text": "a\nb",
+	"events": [
+		{"kind": "TYPE_CHAR", "char": "a", "at": 1000},
+		{"kind": "TYPE_CHAR", "char": "\n", "at": 1100},
+		{"kind": "TYPE_CHAR", "char": "b", "at": 1200}
+	],
+	"expected": {
+		"keystrokes": ["a", "\n", "b"],
+		"startedAt": 1000,
+		"endedAt": 1200
+	}
+}

@@ -7,7 +7,8 @@ Living design docs for ttype. Read in this order if you're new:
 3. **[scenarios.md](scenarios.md)** — frame-by-frame walkthroughs of how the engine responds to keystrokes. The principles from `typing-feel.md`, made concrete. These become unit tests / fixtures.
 4. **[review.md](review.md)** — what happens after a run. Not a scoreboard; a short review surface for content reflection and typing habits.
 5. **[engine-design.md](engine-design.md)** — the engine architecture (event-sourced, replayable, framework-agnostic) that makes everything above possible.
-6. **[ts-conventions.md](ts-conventions.md)** — TypeScript patterns for making illegal states unrepresentable and keeping the engine pure (discriminated unions, exhaustiveness, `readonly`, branded types, no mutation).
+6. **[rendering.md](rendering.md)** — the renderer layer. Semantic chunking, viewport policy, layerable source-kind-aware overlays. What turns engine state into a terminal frame.
+7. **[ts-conventions.md](ts-conventions.md)** — TypeScript patterns for making illegal states unrepresentable and keeping the engine pure (discriminated unions, exhaustiveness, `readonly`, branded types, no mutation).
 
 Project-level goals and commands live in [../CLAUDE.md](../CLAUDE.md).
 

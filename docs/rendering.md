@@ -9,6 +9,8 @@ This doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`
 - **Line-window fallback** — when a chunk exceeds the viewport, render a cursor-centered line window _inside_ it. The fallback always works.
 - **Cursor is always visible** — sticky-middle policy; the user never types past the bottom of the rendered output.
 - **TUI rendering is "choose what to render", not "scroll to it"** — we control what bytes get written, not the terminal's scroll buffer.
+- **Raw text in; chunkers detect structure** — composition with `cat`, `git diff`, etc. is preserved by keeping raw text as the primary input. Pre-formatting is a possible future power-user option, not the default.
+- **Chunkers are their own module** — `source/chunker.ts` parallels `source/engine.ts`: pure function over text, no UI, no I/O, testable in isolation. The React component composes the two.
 
 ## Layerable rendering
 
@@ -112,6 +114,48 @@ When a single source line exceeds the terminal's column count, the terminal wrap
 - **Account for it** — compute the wrapped-row count per source line; window by visible rows, not source lines.
 
 The disciplined version is the second. The pragmatic first cut is the first. We pick later, when we have actual content that exhibits the problem.
+
+## Module structure
+
+```
+┌──────────────────────────────────────────────────┐
+│  cli.tsx                       (adapter)         │
+│    file / stdin / TTY → text                     │
+│    file ext / flags  → which Chunker to use      │
+└──────────────────────────┬───────────────────────┘
+                           │ text, chunker
+                           ▼
+┌──────────────────────────────────────────────────┐
+│  app.tsx                       (React shell)     │
+│    useReducer(reducer, initialState(text))       │
+│    useInput((input, key) => dispatch(action))    │
+│    useMemo(() => chunker(text), [text])          │
+│    → composes engine state + chunks → JSX frame  │
+└──────┬────────────────────┬──────────────────────┘
+       │                    │
+       ▼                    ▼
+┌─────────────┐      ┌─────────────────┐
+│ engine.ts   │      │ chunker.ts      │
+│   (pure)    │      │   (pure)        │
+│             │      │                 │
+│ State       │      │ Chunk           │
+│ Action      │      │ Chunker         │
+│ initialState│      │ blankLineChunker│
+│ reducer     │      │ (later: diff,   │
+│ replay      │      │  code, md, …)   │
+└─────────────┘      └─────────────────┘
+```
+
+Three pure modules (`engine.ts`, `chunker.ts`, and eventually a `render.ts` if the per-character layout math gets big enough to extract) and one React component (`app.tsx`) that composes them. The CLI adapter at the top glues input shape to the right combination.
+
+Why this shape:
+
+- **Each pure module passes the four-question extraction test**: separate concern, independently testable, multiple implementations, shrinks what's around it.
+- **Engine and chunker mirror each other architecturally** — both are pure functions over data with replaceable implementations selectable at the boundary. Same testing approach (in-code unit tests + replay fixtures for the engine, in-code unit tests for the chunker).
+- **The React component never imports Ink-foreign concepts** — it just composes engine state with chunker output and emits JSX. The hard "what should happen" decisions live in the pure modules below.
+- **Adapters are the only place that knows about input kinds.** When a new kind shows up (`.diff`, `.md`, `--code`), the change is: add a chunker to `chunker.ts`, teach `selectChunker()` in `cli.tsx` how to pick it. Nothing else moves.
+
+The discipline this protects: **structure detection (chunking) is separate from typing semantics (engine) is separate from terminal output (renderer in app.tsx).** Three concerns, three modules. Mixing any two would mean a bigger surface that's harder to test, refactor, and reason about.
 
 ## Engine implications
 

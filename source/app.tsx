@@ -100,7 +100,7 @@ export default function App({text: initialText}: Props) {
 								{char}
 							</Text>
 						))}
-						{isCursor(start + line.length) && <Text inverse>↵</Text>}
+						{isCursor(start + line.length) && <Text inverse>↵ENTER</Text>}
 					</Text>
 				);
 			})}

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import test from 'ava';
-import {reducer, initialState, replay, type Fixture} from './engine.js';
+import {initialState, reducer, replay, type Fixture} from './engine.js';
 
 test('First TYPE_CHAR appends char, sets startedAt, leaves endedAt unset', t => {
 	const state = initialState('hello');
@@ -109,3 +109,13 @@ for (const file of fs
 		}
 	});
 }
+
+test('computeTypeableIndices skips leading whitespace at start', t => {
+	const state = initialState('  hello');
+	t.deepEqual(state.typeableIndices, [2, 3, 4, 5, 6]);
+});
+
+test('computeTypeableIndices skips leading whitespace per line', t => {
+	const state = initialState('a\n  b');
+	t.deepEqual(state.typeableIndices, [0, 1, 4]);
+});

@@ -13,20 +13,28 @@ export default function App({text: initialText}: Props) {
 	// Recomputed only when text changes. Re-running this loop on every keystroke
 	// is wasted work — line structure is a property of the source, not of typing
 	// progress.
-	const {lines, lineStarts} = useMemo(() => {
-		const lines = text.split('\n');
-
-		const lineStarts: number[] = [];
+	const lineRows = useMemo(() => {
+		const rows: Array<{line: string; start: number}> = [];
 		let pos = 0;
-		for (const line of lines) {
-			lineStarts.push(pos);
+		for (const line of text.split('\n')) {
+			rows.push({line, start: pos});
 			pos += line.length + 1;
 		}
 
-		return {lines, lineStarts};
+		return rows;
 	}, [text]);
 
 	const cursorLine = text.slice(0, keystrokes.length).split('\n').length - 1;
+
+	const viewportLines = 10;
+	const half = Math.floor(viewportLines / 2);
+
+	// The viewport should slide with the cursor.
+	// The cursor should mostly be in the middle, except at the beginning and end of the text.
+	const startFromCenter = cursorLine - half;
+	const startForBottomEdge = lineRows.length - viewportLines;
+	const startLine = Math.max(0, Math.min(startFromCenter, startForBottomEdge));
+	const endLine = Math.min(lineRows.length, startLine + viewportLines);
 
 	const isDone = keystrokes.length === text.length;
 
@@ -62,15 +70,19 @@ export default function App({text: initialText}: Props) {
 
 	return (
 		<Box flexDirection="column">
-			{}
-			<Text>
-				{[...text].map((char, i) => (
-					// eslint-disable-next-line react/no-array-index-key -- list is fixed-length and never reorders; index is the natural identity
-					<Text key={i} color={colorFor(i)}>
-						{char}
+			{lineRows.slice(startLine, endLine).map(({line, start}, i) => {
+				const lineIndex = startLine + i;
+				return (
+					<Text key={lineIndex}>
+						{[...line].map((char, col) => (
+							// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
+							<Text key={col} color={colorFor(start + col)}>
+								{char}
+							</Text>
+						))}
 					</Text>
-				))}
-			</Text>
+				);
+			})}
 			<Text>
 				Typed: {keystrokes.length} / {text.length}
 			</Text>

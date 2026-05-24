@@ -17,6 +17,7 @@ These conventions pair with the event-sourced engine in [engine-design.md](engin
 - **Smart constructors for invariants** — one place gets to assert the brand; everywhere else trusts it.
 - **Strict tsconfig** — turn on `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` before writing engine code, not after.
 - **No `any`; `unknown` only at boundaries** — `unknown` forces a narrow; `any` silently disables checking.
+- **Justify the escape hatches** — `useMemo`, `useEffect`, `as`, `!`, `eslint-disable` all carry a one-line "why" comment. The convention is enforced for `eslint-disable` via a lint rule; the rest is honor-system.
 
 The doc closes with a per-commit **checklist** that converts these into a thing to look at before committing engine code.
 
@@ -235,6 +236,65 @@ function ingest(raw: unknown): string {
 
 Adapters (file, stdin) are the only legitimate place for `unknown`; the engine should never see one.
 
+## Justify the escape hatches
+
+The language and libraries give us tools that are sometimes legitimately needed but always carry a cost — performance trade-offs, type-system bypasses, future-reader confusion. Every use of one is exceptional relative to "just write the obvious code." Each exception gets a one-line preceding comment that explains _why this case earns it_.
+
+The list of constructs that count as opt-in escape hatches:
+
+| Construct                                                 | Why it earns commentary                                                          |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `useMemo` / `useCallback`                                 | Caching has invalidation surface; the default is "just recompute"                |
+| `useEffect`                                               | Easy to get wrong — deps, cleanup, double-mount behaviour                        |
+| `as Foo` (type assertion)                                 | Bypasses the type checker; the reader needs to know what runtime guarantee holds |
+| `!` (non-null assertion)                                  | Same as above, narrower                                                          |
+| `// eslint-disable-*`                                     | Overrides a project-wide rule                                                    |
+| Magic numbers without a name                              | The reader has to infer meaning from context                                     |
+| `Math.floor` / `Math.ceil` / `Math.trunc` near boundaries | Often the right choice; sometimes the sign of an off-by-one                      |
+
+```ts
+// bad — reader has to guess why useMemo is here
+const {lines, lineStarts} = useMemo(() => {
+	/* ... */
+}, [text]);
+
+// good — the rationale is at the call site
+// Recomputed only when text changes. Re-running on every keystroke is wasted
+// work — line structure is a property of the source, not of typing progress.
+const {lines, lineStarts} = useMemo(() => {
+	/* ... */
+}, [text]);
+```
+
+```ts
+// bad
+const cursor = state.cursor as TypeableIndex;
+
+// good
+// Safe because the state-construction path guarantees the cursor is always
+// one of the indices in typeableIndices; the type system can't see that.
+const cursor = state.cursor as TypeableIndex;
+```
+
+### Enforcement
+
+For `eslint-disable-*` comments, the convention is mechanical: `eslint-comments/require-description` is enabled as an error in the xo config, so disable directives must include a `-- reason` suffix or the gate fails:
+
+```ts
+// eslint-disable-next-line react/no-array-index-key -- list is fixed-length and never reorders; index is the natural identity
+<Text key={i} color={colorFor(i)}>
+	{char}
+</Text>
+```
+
+The other constructs (`useMemo`, `as`, `!`, etc.) are honor-system. Reviewing your own code (or PR review when there's a reviewer) is the enforcement. The convention exists so future-you knows the question to ask: _"is there a `// because ...` above this?"_
+
+### Why this is in this doc
+
+The deeper principle: **dependency arrays are causality declarations; type assertions are claims to the reader.** The comment makes the implicit claim explicit. A `useMemo` without commentary is the author whispering "trust me, this is worth caching"; a `useMemo` _with_ commentary is the author saying "here's the contract — this depends only on X, and the cost of recomputing it on every render would be Y."
+
+The first leaves the next reader to reconstruct the reasoning. The second locks it in.
+
 ## A checklist for adding engine code
 
 When you write or review engine code, run through this list:
@@ -247,6 +307,7 @@ When you write or review engine code, run through this list:
 - [ ] Did I use any of the mutating array methods (`push`, `splice`, `sort` in place)?
 - [ ] Did I introduce `any`? (Search for it before committing.)
 - [ ] If I added a new event kind / char state / cursor variant, did the compiler force me to handle it everywhere? If not, an `exhaustive` check is missing somewhere.
+- [ ] Does every escape hatch (`useMemo`, `useEffect`, `as`, `!`, `eslint-disable`) carry a one-line "why" comment immediately above it?
 
 ## See also
 

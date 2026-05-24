@@ -8,9 +8,30 @@ type Props = {
 
 export default function App({text: initialText}: Props) {
 	const [state, dispatch] = useReducer(reducer, initialState(initialText));
-	const {text, keystrokes, startedAt, endedAt} = state;
+	const {text, keystrokes, typeableIndices, startedAt, endedAt} = state;
 
-	// Recomputed only when text changes. Re-running this loop on every keystroke
+	// Recomputed only when initialText changes.
+	const positionToKeystrokeIndex = useMemo(() => {
+		const map = new Map<number, number>();
+		for (const [i, pos] of typeableIndices.entries()) {
+			map.set(pos, i);
+		}
+
+		return map;
+	}, [typeableIndices]);
+
+	const colorFor = (textPos: number) => {
+		const ki = positionToKeystrokeIndex.get(textPos);
+		if (ki === undefined) return 'gray';
+		if (ki >= keystrokes.length) return undefined;
+		return keystrokes[ki] === text[textPos] ? 'green' : 'red';
+	};
+
+	// Undefined when at the end
+	const cursorPos = typeableIndices[keystrokes.length];
+	const isCursor = (textPos: number) => textPos === cursorPos;
+
+	// Recomputed only when initialText changes. Re-running this loop on every keystroke
 	// is wasted work — line structure is a property of the source, not of typing
 	// progress.
 	const lineRows = useMemo(() => {
@@ -51,8 +72,6 @@ export default function App({text: initialText}: Props) {
 	const correctChars = keystrokes.filter((char, i) => char === text[i]).length;
 	const accuracy = Math.round((correctChars / text.length) * 100);
 
-	const isCursor = (i: number) => i === keystrokes.length;
-
 	useInput((input, key) => {
 		if (key.backspace || key.delete) {
 			dispatch({kind: 'BACKSPACE'});
@@ -64,13 +83,6 @@ export default function App({text: initialText}: Props) {
 			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
 		}
 	});
-
-	const colorFor = (i: number) =>
-		i >= keystrokes.length
-			? undefined
-			: keystrokes[i] === text[i]
-			? 'green'
-			: 'red';
 
 	return (
 		<Box flexDirection="column">

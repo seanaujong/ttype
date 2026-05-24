@@ -51,6 +51,8 @@ export default function App({text: initialText}: Props) {
 	const correctChars = keystrokes.filter((char, i) => char === text[i]).length;
 	const accuracy = Math.round((correctChars / text.length) * 100);
 
+	const isCursor = (i: number) => i === keystrokes.length;
+
 	useInput((input, key) => {
 		if (key.backspace || key.delete) {
 			dispatch({kind: 'BACKSPACE'});
@@ -77,8 +79,12 @@ export default function App({text: initialText}: Props) {
 				return (
 					<Text key={lineIndex}>
 						{[...line].map((char, col) => (
-							// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
-							<Text key={col} color={colorFor(start + col)}>
+							<Text
+								// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
+								key={col}
+								color={colorFor(start + col)}
+								inverse={isCursor(start + col)}
+							>
 								{char}
 							</Text>
 						))}

@@ -10,6 +10,13 @@ export type Action =
 	| {kind: 'BACKSPACE'}
 	| {kind: 'RESET'};
 
+export type Fixture = {
+	name: string;
+	text: string;
+	events: Action[];
+	expected: Partial<State>;
+};
+
 export function initialState(text: string): State {
 	return {
 		text,
@@ -55,4 +62,8 @@ export function reducer(state: State, action: Action): State {
 			return state;
 		}
 	}
+}
+
+export function replay(text: string, events: Action[]): State {
+	return events.reduce(reducer, initialState(text));
 }

@@ -1,0 +1,16 @@
+{
+	"name": "typing 'hello' correctly",
+	"text": "hello",
+	"events": [
+		{"kind": "TYPE_CHAR", "char": "h", "at": 1000},
+		{"kind": "TYPE_CHAR", "char": "e", "at": 1100},
+		{"kind": "TYPE_CHAR", "char": "l", "at": 1200},
+		{"kind": "TYPE_CHAR", "char": "l", "at": 1300},
+		{"kind": "TYPE_CHAR", "char": "o", "at": 1400}
+	],
+	"expected": {
+		"keystrokes": ["h", "e", "l", "l", "o"],
+		"startedAt": 1000,
+		"endedAt": 1400
+	}
+}

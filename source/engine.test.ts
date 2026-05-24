@@ -1,5 +1,6 @@
+import fs from 'node:fs';
 import test from 'ava';
-import {reducer, initialState} from './engine.js';
+import {reducer, initialState, replay, type Fixture} from './engine.js';
 
 test('First TYPE_CHAR appends char, sets startedAt, leaves endedAt unset', t => {
 	const state = initialState('hello');
@@ -87,3 +88,24 @@ test('RESET clears keystrokes and timestamps, preserves text', t => {
 	t.is(reset.endedAt, undefined);
 	t.is(reset.text, 'hello');
 });
+
+const fixturesDir = new URL('fixtures/', import.meta.url);
+
+for (const file of fs
+	.readdirSync(fixturesDir)
+	.filter(name => name.endsWith('.json'))) {
+	const raw = fs.readFileSync(new URL(file, fixturesDir), 'utf8');
+	const fixture = JSON.parse(raw) as Fixture;
+
+	test(`fixture: ${fixture.name}`, t => {
+		const result = replay(fixture.text, fixture.events);
+
+		for (const [field, value] of Object.entries(fixture.expected)) {
+			t.deepEqual(
+				result[field as keyof typeof result],
+				value,
+				`${fixture.name}: ${field}`,
+			);
+		}
+	});
+}

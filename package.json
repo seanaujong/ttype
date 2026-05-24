@@ -55,7 +55,9 @@
 		"rules": {
 			"react/prop-types": "off",
 			"unicorn/expiring-todo-comments": "off",
-			"unicorn/prevent-abbreviations": "off"
+			"unicorn/prevent-abbreviations": "off",
+			"unicorn/no-array-reduce": "off",
+			"unicorn/no-array-callback-reference": "off"
 		}
 	},
 	"prettier": "@vdemedes/prettier-config"

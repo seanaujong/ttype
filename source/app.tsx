@@ -2,10 +2,12 @@ import React, {useReducer} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {initialState, reducer} from './engine.js';
 
-const sampleText = 'The quick brown fox jumps over the lazy dog.';
+type Props = {
+	readonly text: string;
+};
 
-export default function App() {
-	const [state, dispatch] = useReducer(reducer, initialState(sampleText));
+export default function App({text: initialText}: Props) {
+	const [state, dispatch] = useReducer(reducer, initialState(initialText));
 	const {text, keystrokes, startedAt, endedAt} = state;
 
 	const isDone = keystrokes.length === text.length;

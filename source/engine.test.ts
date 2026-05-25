@@ -138,3 +138,15 @@ test('computeTypeableIndices does not produce a trailing newline after the last 
 	// 'a', then two blank-ish lines. No \n typeable after 'a'.
 	t.deepEqual(state.typeableIndices, [0]);
 });
+
+test('computeTypeableIndices skips mid-line tabs', t => {
+	const state = initialState('a\tb');
+	// Positions: a=0, \t=1, b=2. Tab not typeable.
+	t.deepEqual(state.typeableIndices, [0, 2]);
+});
+
+test('computeTypeableIndices skips both leading and mid-line tabs', t => {
+	const state = initialState('\ta\tb');
+	// Positions: \t=0 (leading, skipped), a=1, \t=2 (mid-line, skipped), b=3.
+	t.deepEqual(state.typeableIndices, [1, 3]);
+});

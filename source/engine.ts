@@ -50,6 +50,8 @@ function computeTypeableIndices(text: string): readonly number[] {
 		const firstContent = line.search(/[^ \t]/);
 		if (firstContent !== -1) {
 			for (let i = firstContent; i < line.length; i++) {
+				// Skip mid-line tab whitespace
+				if (line[i] === '\t') continue;
 				indices.push(pos + i);
 			}
 		}

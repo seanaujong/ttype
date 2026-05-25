@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import {Buffer} from 'node:buffer';
 import fs from 'node:fs';
 import process from 'node:process';
 import tty from 'node:tty';
-import meow from 'meow';
 import {render} from 'ink';
+import meow from 'meow';
 import React from 'react';
 import App from './app.js';
 import {blankLineChunker, diffChunker, type Chunker} from './chunker.js';
@@ -34,11 +35,44 @@ function resolveSourceText(path: string | undefined): string {
 	}
 
 	if (!process.stdin.isTTY) {
-		return fs.readFileSync(0, 'utf8').trimEnd();
+		return readAllStdinSync().trimEnd();
 	}
 
 	cli.showHelp(1);
 	process.exit(1);
+}
+
+function readAllStdinSync(): string {
+	const chunks: Buffer[] = [];
+	const buffer = Buffer.alloc(65_536);
+	let done = false;
+
+	while (!done) {
+		let bytesRead = 0;
+		try {
+			bytesRead = fs.readSync(0, buffer, 0, buffer.length, null);
+		} catch (error: unknown) {
+			// EAGAIN on macOS: pipe momentarily empty, try again.
+			// EOF: end of stream (some Node versions throw instead of returning 0).
+			const {code} = error as NodeJS.ErrnoException;
+			if (code === 'EAGAIN') continue;
+			if (code === 'EOF') {
+				done = true;
+				break;
+			}
+
+			throw error;
+		}
+
+		if (bytesRead === 0) {
+			done = true;
+			break;
+		}
+
+		chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+	}
+
+	return Buffer.concat(chunks).toString('utf8');
 }
 
 function selectChunker(

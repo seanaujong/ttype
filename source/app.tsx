@@ -142,6 +142,32 @@ function useCharacterStyling({
 	return {colorFor, isCursor};
 }
 
+// Diff line decoration. Returns per-line dim hint (for metadata) and an
+// optional color for the leading prefix char only — leaving the rest of the
+// line to per-character typing feedback (green = correct, red = wrong)
+// without competing for the same visual channel.
+function diffLineStyle(line: string): {
+	dimColor?: boolean;
+	prefixColor?: string;
+} {
+	// Hunk header
+	if (line.startsWith('@@')) return {dimColor: true};
+
+	// File-level metadata (must come before '+'/'-' matches,
+	// since `--- ` and `+++ ` start with - / +)
+	if (line.startsWith('diff --git')) return {dimColor: true};
+	if (line.startsWith('index ')) return {dimColor: true};
+	if (line.startsWith('--- ')) return {dimColor: true};
+	if (line.startsWith('+++ ')) return {dimColor: true};
+
+	// Added / removed content — color only the prefix marker
+	if (line.startsWith('+')) return {prefixColor: 'green'};
+	if (line.startsWith('-')) return {prefixColor: 'red'};
+
+	// Context line - default
+	return {};
+}
+
 // Session-meta derivations for the status row.
 function useStats({
 	text,
@@ -268,14 +294,23 @@ export default function App({
 			{lineRows.slice(chunkStartLine, chunkEndLine).map(({line, start}, i) => {
 				const lineIndex = chunkStartLine + i;
 				const lineInFocus = isInFocus(start);
+				const containingChunk = chunks.find(
+					chunk => chunk.start <= start && start < chunk.end,
+				);
+				const diffStyle =
+					containingChunk?.kind === 'diff-hunk' ? diffLineStyle(line) : {};
 
 				return (
-					<Text key={lineIndex} dimColor={!lineInFocus}>
+					<Text key={lineIndex} dimColor={!lineInFocus || diffStyle.dimColor}>
 						{[...line].map((char, col) => (
 							<Text
 								// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
 								key={col}
-								color={colorFor(start + col)}
+								color={
+									col === 0 && diffStyle.prefixColor
+										? diffStyle.prefixColor
+										: colorFor(start + col)
+								}
 								inverse={isCursor(start + col)}
 							>
 								{char}

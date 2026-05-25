@@ -39,3 +39,25 @@ export const blankLineChunker: Chunker = text => {
 
 	return chunks;
 };
+
+// Splits unified-diff output into hunks. Lines starting with "@@" delimit
+// hunks; metadata before the first @@ becomes one preceding chunk.
+export const diffChunker: Chunker = text => {
+	const chunks: Chunk[] = [];
+	let lastStart = 0;
+
+	for (const match of text.matchAll(/^@@/gm)) {
+		const matchStart = match.index;
+		if (matchStart > lastStart) {
+			chunks.push({start: lastStart, end: matchStart, kind: 'diff-hunk'});
+		}
+
+		lastStart = matchStart;
+	}
+
+	if (lastStart < text.length) {
+		chunks.push({start: lastStart, end: text.length, kind: 'diff-hunk'});
+	}
+
+	return chunks;
+};

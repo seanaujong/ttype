@@ -6,7 +6,7 @@ import meow from 'meow';
 import {render} from 'ink';
 import React from 'react';
 import App from './app.js';
-import {blankLineChunker, type Chunker} from './chunker.js';
+import {blankLineChunker, diffChunker, type Chunker} from './chunker.js';
 
 const cli = meow(
 	`
@@ -41,9 +41,21 @@ function resolveSourceText(path: string | undefined): string {
 	process.exit(1);
 }
 
-const chunker: Chunker = blankLineChunker;
+function selectChunker(
+	path: string | undefined,
+	flags: {diff?: boolean},
+): Chunker {
+	if (flags.diff) return diffChunker;
+	if (path && ['.diff', '.patch'].some(ext => path.endsWith(ext))) {
+		return diffChunker;
+	}
 
-const text = resolveSourceText(cli.input[0]);
+	return blankLineChunker;
+}
+
+const chunker: Chunker = selectChunker(path, cli.flags);
+
+const text = resolveSourceText(path);
 
 const ttyPath = process.platform === 'win32' ? 'CONIN$' : '/dev/tty';
 

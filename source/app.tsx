@@ -1,14 +1,19 @@
 import {Box, Text, useInput} from 'ink';
 import React, {useMemo, useReducer} from 'react';
-import {type Chunker} from './chunker.js';
+import {type Chunk, type Chunker} from './chunker.js';
 import {initialState, reducer} from './engine.js';
 
 type Props = {
 	readonly text: string;
 	readonly chunker: Chunker;
+	readonly viewportLineBudget: number;
 };
 
-export default function App({text: initialText, chunker}: Props) {
+export default function App({
+	text: initialText,
+	chunker,
+	viewportLineBudget,
+}: Props) {
 	const [state, dispatch] = useReducer(reducer, initialState(initialText));
 	const {text, keystrokes, typeableIndices, startedAt, endedAt} = state;
 
@@ -60,9 +65,55 @@ export default function App({text: initialText, chunker}: Props) {
 			lineRows.findLastIndex(row => row.start <= pos),
 		);
 
-	const chunkStartLine = focusedChunk ? lineForPos(focusedChunk.start) : 0;
-	const chunkEndLine = focusedChunk
-		? lineForPos(focusedChunk.end - 1) + 1
+	const chunkLines = (chunk: Chunk): number =>
+		lineForPos(chunk.end - 1) - lineForPos(chunk.start) + 1;
+
+	let firstChunkIdx = focusedChunk ? chunks.indexOf(focusedChunk) : -1;
+	let lastChunkIdx = firstChunkIdx;
+	let totalLines = focusedChunk ? chunkLines(focusedChunk) : 0;
+
+	// True if this text position is inside the focused chunk (for dimming logic).
+	const isInFocus = (pos: number) =>
+		focusedChunk !== undefined &&
+		pos >= focusedChunk.start &&
+		pos < focusedChunk.end;
+
+	if (focusedChunk) {
+		while (totalLines < viewportLineBudget) {
+			const prev = firstChunkIdx > 0 ? chunks[firstChunkIdx - 1] : undefined;
+			const next =
+				lastChunkIdx + 1 < chunks.length ? chunks[lastChunkIdx + 1] : undefined;
+
+			// Pick the smaller of the two neighbors that fits; if only one fits, take it.
+			const prevSize = prev ? chunkLines(prev) : Number.POSITIVE_INFINITY;
+			const nextSize = next ? chunkLines(next) : Number.POSITIVE_INFINITY;
+
+			if (
+				prev &&
+				totalLines + prevSize <= viewportLineBudget &&
+				prevSize <= nextSize
+			) {
+				firstChunkIdx--;
+				totalLines += prevSize;
+			} else if (next && totalLines + nextSize <= viewportLineBudget) {
+				lastChunkIdx++;
+				totalLines += nextSize;
+			} else {
+				break;
+			}
+		}
+	}
+
+	// Computed after the loop so they reflect the expanded range, not the
+	// initial focused-chunk-only snapshot.
+	const firstVisibleChunk = chunks[firstChunkIdx];
+	const lastVisibleChunk = chunks[lastChunkIdx];
+
+	const chunkStartLine = firstVisibleChunk
+		? lineForPos(firstVisibleChunk.start)
+		: 0;
+	const chunkEndLine = lastVisibleChunk
+		? lineForPos(lastVisibleChunk.end - 1) + 1
 		: lineRows.length;
 
 	const elapsedMinutes =
@@ -128,8 +179,10 @@ export default function App({text: initialText, chunker}: Props) {
 		<Box flexDirection="column">
 			{lineRows.slice(chunkStartLine, chunkEndLine).map(({line, start}, i) => {
 				const lineIndex = chunkStartLine + i;
+				const lineInFocus = isInFocus(start);
+
 				return (
-					<Text key={lineIndex}>
+					<Text key={lineIndex} dimColor={!lineInFocus}>
 						{[...line].map((char, col) => (
 							<Text
 								// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity

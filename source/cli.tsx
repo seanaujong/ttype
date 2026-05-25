@@ -63,4 +63,9 @@ const interactiveStdin = process.stdin.isTTY
 	? process.stdin
 	: new tty.ReadStream(fs.openSync(ttyPath, 'r'));
 
-render(<App text={text} chunker={chunker} />, {stdin: interactiveStdin});
+const viewportLineBudget = process.stdout.rows;
+
+render(
+	<App text={text} chunker={chunker} viewportLineBudget={viewportLineBudget} />,
+	{stdin: interactiveStdin},
+);

@@ -6,10 +6,11 @@ Living design docs for ttype. Read in this order if you're new:
 2. **[typing-feel.md](typing-feel.md)** — how the act of typing should feel. The principles: chill, whitespace rendered but not required, errors stay local, correction is cheap.
 3. **[scenarios.md](scenarios.md)** — frame-by-frame walkthroughs of how the engine responds to keystrokes. The principles from `typing-feel.md`, made concrete. These become unit tests / fixtures.
 4. **[review.md](review.md)** — what happens after a run. Not a scoreboard; a short review surface for content reflection and typing habits.
-5. **[engine-design.md](engine-design.md)** — the engine architecture (event-sourced, replayable, framework-agnostic) that makes everything above possible.
-6. **[rendering.md](rendering.md)** — the renderer layer. Semantic chunking, viewport policy, layerable source-kind-aware overlays. What turns engine state into a terminal frame.
-7. **[testing.md](testing.md)** — testing layers. Reducer unit tests, replay fixtures, and the deferred integration tests; what each layer covers and what it doesn't.
-8. **[ts-conventions.md](ts-conventions.md)** — TypeScript patterns for making illegal states unrepresentable and keeping the engine pure (discriminated unions, exhaustiveness, `readonly`, branded types, no mutation).
+5. **[architecture.md](architecture.md)** — high-level layer map. Adapter → React shell → pure modules. Where everything fits and how data flows.
+6. **[engine-design.md](engine-design.md)** — the engine architecture (event-sourced, replayable, framework-agnostic) that makes everything above possible.
+7. **[rendering.md](rendering.md)** — the renderer layer. Semantic chunking, viewport policy, layerable source-kind-aware overlays. What turns engine state into a terminal frame.
+8. **[testing.md](testing.md)** — testing layers. Reducer unit tests, replay fixtures, and the deferred integration tests; what each layer covers and what it doesn't.
+9. **[ts-conventions.md](ts-conventions.md)** — TypeScript patterns for making illegal states unrepresentable and keeping the engine pure (discriminated unions, exhaustiveness, `readonly`, branded types, no mutation).
 
 Project-level goals and commands live in [../CLAUDE.md](../CLAUDE.md).
 

@@ -1,4 +1,3 @@
-/* eslint-disable */
 // Headless dogfood harness. Exercises the chunker + engine ingestion path
 // over realistic inputs and dumps what positions are typeable vs cosmetic.
 // Lets me (the agent) verify span behavior without needing a TTY.
@@ -49,10 +48,14 @@ for (const [lineIdx, line] of lines.entries()) {
 	for (let i = 0; i < line.length; i++) {
 		marks.push(typeableSet.has(pos + i) ? 'T' : '_');
 	}
+
 	const newlinePos = pos + line.length;
-	const newlineMark = lineIdx < lines.length - 1
-		? (typeableSet.has(newlinePos) ? 'T\\n' : '_\\n')
-		: '';
+	const newlineMark =
+		lineIdx < lines.length - 1
+			? typeableSet.has(newlinePos)
+				? 'T\\n'
+				: '_\\n'
+			: '';
 	console.log(`  ${line.padEnd(50)} ${marks.join('')}${newlineMark}`);
 	pos += line.length + 1;
 }

@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import test from 'ava';
 import {computeTypeableIndices} from './chunker.js';
-import {initialState, reducer, replay, type Fixture} from './engine.js';
+import {
+	initialState,
+	matchesExpected,
+	reducer,
+	replay,
+	type Fixture,
+} from './engine.js';
 
 // Helper: build an initial state using the default global rules. Engine tests
 // don't care about chunk-aware cosmetic spans — they care about reducer
@@ -81,6 +87,38 @@ test('BACKSPACE preserves text, startedAt, and endedAt', t => {
 	t.is(next.text, 'hi');
 	t.is(next.startedAt, 1000);
 	t.is(next.endedAt, undefined);
+});
+
+test('matchesExpected: identity match', t => {
+	t.true(matchesExpected('a', 'a'));
+	t.false(matchesExpected('a', 'b'));
+});
+
+test('matchesExpected: em-dash accepts hyphen', t => {
+	t.true(matchesExpected('-', '—'));
+	t.true(matchesExpected('—', '—')); // Exact still works
+	t.false(matchesExpected('_', '—'));
+});
+
+test('matchesExpected: en-dash accepts hyphen', t => {
+	t.true(matchesExpected('-', '–'));
+});
+
+test('matchesExpected: smart quotes accept ASCII partners', t => {
+	t.true(matchesExpected('"', '“'));
+	t.true(matchesExpected('"', '”'));
+	t.true(matchesExpected("'", '‘'));
+	t.true(matchesExpected("'", '’'));
+});
+
+test('matchesExpected: non-breaking space accepts regular space', t => {
+	t.true(matchesExpected(' ', ' '));
+});
+
+test('matchesExpected: undefined operands are not a match', t => {
+	t.false(matchesExpected(undefined, 'a'));
+	t.false(matchesExpected('a', undefined));
+	t.false(matchesExpected(undefined, undefined));
 });
 
 test('RESET clears keystrokes and timestamps, preserves text', t => {

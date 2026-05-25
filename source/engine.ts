@@ -1,3 +1,35 @@
+// Typographic Unicode chars that have a sensible 1:1 ASCII partner on a
+// standard keyboard. Keyed by the displayed char; value is the keystroke we
+// accept as equivalent. The exact char is always accepted too (via the OR in
+// matchesExpected), so users with a configured keyboard aren't penalized.
+//
+// Variable-length substitutions (e.g. `...` → `…`) intentionally don't live
+// here — those would need a wider engine change. Chars with no clean 1:1
+// (e.g. ellipsis) are skipped at the chunker layer via untypeableChars.
+//
+// A Map (not a Record) because xo's strictCamelCase rule rejects Unicode
+// property names on object literals.
+const keystrokeEquivalents = new Map<string, string>([
+	['—', '-'], // Em dash → hyphen
+	['–', '-'], // En dash → hyphen
+	['“', '"'], // Left double quote → straight
+	['”', '"'], // Right double quote → straight
+	['‘', "'"], // Left single quote → straight
+	['’', "'"], // Right single quote → straight
+	[' ', ' '], // Non-breaking space → regular space
+]);
+
+// Does `typed` count as a correct keystroke for `expected`? Identity, or
+// the registered ASCII partner from keystrokeEquivalents.
+export function matchesExpected(
+	typed: string | undefined,
+	expected: string | undefined,
+): boolean {
+	if (typed === undefined || expected === undefined) return false;
+	if (typed === expected) return true;
+	return keystrokeEquivalents.get(expected) === typed;
+}
+
 export type State = {
 	text: string;
 	typeableIndices: readonly number[];

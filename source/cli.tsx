@@ -7,7 +7,12 @@ import {render} from 'ink';
 import meow from 'meow';
 import React from 'react';
 import App from './app.js';
-import {blankLineChunker, diffChunker, type Chunker} from './chunker.js';
+import {
+	blankLineChunker,
+	diffChunker,
+	markdownChunker,
+	type Chunker,
+} from './chunker.js';
 
 const cli = meow(
 	`
@@ -82,6 +87,10 @@ function selectChunker(
 	if (flags.diff) return diffChunker;
 	if (path && ['.diff', '.patch'].some(ext => path.endsWith(ext))) {
 		return diffChunker;
+	}
+
+	if (path && ['.md', '.markdown'].some(ext => path.endsWith(ext))) {
+		return markdownChunker;
 	}
 
 	return blankLineChunker;

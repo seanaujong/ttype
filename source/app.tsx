@@ -1,7 +1,7 @@
 import {Box, Text, useInput} from 'ink';
 import React, {useMemo, useReducer} from 'react';
 import {computeTypeableIndices, type Chunk, type Chunker} from './chunker.js';
-import {initialState, reducer} from './engine.js';
+import {initialState, matchesExpected, reducer} from './engine.js';
 
 type Props = {
 	readonly text: string;
@@ -130,7 +130,7 @@ function useCharacterStyling({
 		const ki = positionToKeystrokeIndex.get(textPos);
 		if (ki === undefined) return 'gray';
 		if (ki >= keystrokes.length) return undefined;
-		return keystrokes[ki] === text[textPos] ? 'green' : 'red';
+		return matchesExpected(keystrokes[ki], text[textPos]) ? 'green' : 'red';
 	};
 
 	const isCursor = (textPos: number) => textPos === cursorPos;
@@ -204,8 +204,8 @@ function useStats({
 			? Math.round(typeableIndices.length / 5 / elapsedMinutes)
 			: 0;
 
-	const correctChars = keystrokes.filter(
-		(char, i) => char === expectedAt(i),
+	const correctChars = keystrokes.filter((char, i) =>
+		matchesExpected(char, expectedAt(i)),
 	).length;
 	// "Of what's been typed, how much is correct?" — converges to final-state
 	// accuracy when typing completes.

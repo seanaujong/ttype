@@ -18,7 +18,11 @@ export type SpanKind =
 	| 'diff-remove'
 	| 'diff-header'
 	| 'diff-metadata'
-	| 'diff-context';
+	| 'diff-context'
+	| 'md-heading-prefix'
+	| 'md-emphasis-marker'
+	| 'md-link-syntax'
+	| 'md-fence';
 
 // A region within a chunk that the engine should treat as cosmetic
 // (rendered but not in the typing path). Style is a hint for renderer
@@ -134,6 +138,204 @@ function computeSpans(
 	return spans;
 }
 
+// Markdown chunker. Walks lines once, building three chunk kinds:
+//   - `heading`   — a single `#…` line; the `#+ ` prefix becomes cosmetic
+//   - `fenced-code` — content between ```...``` fences; the fence lines themselves
+//     are cosmetic, content inside is typeable as-is (verbatim code)
+//   - `prose` — blank-line-delimited paragraphs; spans mark `**bold**` markers,
+//     `_italic_` markers, and link `[`/`](url)` syntax (link *text* stays typeable)
+//
+// Lists, block quotes, and inline backticks are deferred — they add value but
+// not architecture; revisit once v1 proves out by dogfooding actual docs.
+export const markdownChunker: Chunker = text => {
+	const chunks: Chunk[] = [];
+	const lines = text.split('\n');
+
+	// Precompute each line's starting offset so the per-line logic below can
+	// index into `text` without re-counting characters every iteration.
+	const lineStarts: number[] = [];
+	let pos = 0;
+	for (const line of lines) {
+		lineStarts.push(pos);
+		pos += line.length + 1;
+	}
+
+	// Tracks the start of the prose chunk currently being accumulated, or
+	// undefined when not inside a prose run.
+	let proseStart: number | undefined;
+
+	// Close the in-progress prose chunk (if any) at the end of the line *before*
+	// `nextLineIdx`. Called when a blank line, heading, fence, or end-of-text
+	// ends the prose run.
+	const flushProse = (nextLineIdx: number) => {
+		if (proseStart === undefined) return;
+		// The last content line of this prose run is at nextLineIdx - 1.
+		const lastIdx = nextLineIdx - 1;
+		const end = lineStarts[lastIdx]! + lines[lastIdx]!.length;
+		chunks.push({
+			start: proseStart,
+			end,
+			kind: 'prose',
+			spans: computeProseSpans(text, proseStart, end),
+		});
+		proseStart = undefined;
+	};
+
+	let i = 0;
+	while (i < lines.length) {
+		const line = lines[i]!;
+		const lineStart = lineStarts[i]!;
+
+		// Blank line: ends any in-progress prose run.
+		if (line.trim() === '') {
+			flushProse(i);
+			i++;
+			continue;
+		}
+
+		// Heading: single-line chunk. The `#+ ` prefix is cosmetic.
+		const headingPrefix = /^(#{1,6})\s+/.exec(line);
+		if (headingPrefix) {
+			flushProse(i);
+			chunks.push({
+				start: lineStart,
+				end: lineStart + line.length,
+				kind: 'heading',
+				spans: [
+					{
+						start: lineStart,
+						end: lineStart + headingPrefix[0].length,
+						style: 'md-heading-prefix',
+					},
+				],
+			});
+			i++;
+			continue;
+		}
+
+		// Fenced code block: from this ``` line through the next ``` line.
+		// If unclosed, the chunk extends to end-of-text (still typeable content).
+		if (line.startsWith('```')) {
+			flushProse(i);
+			const fenceStart = lineStart;
+			let j = i + 1;
+			while (j < lines.length && !lines[j]!.startsWith('```')) j++;
+
+			const hasClose = j < lines.length;
+			const chunkEnd = hasClose
+				? lineStarts[j]! + lines[j]!.length
+				: text.length;
+
+			const spans: Span[] = [
+				// Open fence: includes its trailing \n so the cursor lands on the first
+				// content line, not on a "newline after the fence."
+				{
+					start: fenceStart,
+					end: lineStart + line.length + 1,
+					style: 'md-fence',
+				},
+			];
+			if (hasClose) {
+				spans.push({
+					start: lineStarts[j]!,
+					end: lineStarts[j]! + lines[j]!.length,
+					style: 'md-fence',
+				});
+			}
+
+			chunks.push({
+				start: fenceStart,
+				end: chunkEnd,
+				kind: 'fenced-code',
+				spans,
+			});
+			i = j + 1; // Resume after the closing fence
+			continue;
+		}
+
+		// Regular prose line: start (or continue) the current prose chunk.
+		proseStart ??= lineStart;
+		i++;
+	}
+
+	// Close any prose chunk left open by end-of-text.
+	flushProse(lines.length);
+
+	return chunks;
+};
+
+// Inline markdown decoration: bold (`**…**`), italic (`_…_`), and links
+// (`[text](url)`). Markers are cosmetic; the *content* between them stays
+// typeable. Italics use the underscore form only — single-asterisk italic
+// would need lookarounds to avoid matching inside `**bold**`, not worth it
+// for v1 since we mostly use `_…_` in our own docs.
+function computeProseSpans(
+	text: string,
+	chunkStart: number,
+	chunkEnd: number,
+): Span[] {
+	const spans: Span[] = [];
+	const segment = text.slice(chunkStart, chunkEnd);
+
+	// Bold: **content** — push spans for the leading/trailing `**` pair.
+	for (const match of segment.matchAll(/\*\*[^*\n]+\*\*/g)) {
+		const idx = match.index;
+		spans.push(
+			{
+				start: chunkStart + idx,
+				end: chunkStart + idx + 2,
+				style: 'md-emphasis-marker',
+			},
+			{
+				start: chunkStart + idx + match[0].length - 2,
+				end: chunkStart + idx + match[0].length,
+				style: 'md-emphasis-marker',
+			},
+		);
+	}
+
+	// Italic: _content_ — guarded against word-internal underscores (`var_name`)
+	// by requiring non-alphanumeric (or string-edge) neighbors on both sides.
+	for (const match of segment.matchAll(/(^|\W)_([^_\n]+)_(?=$|\W)/g)) {
+		// Match[1] is the leading non-word char (possibly empty at string start).
+		const openIdx = match.index + match[1]!.length;
+		const fullLen = 1 + match[2]!.length + 1; // `_content_`
+		spans.push(
+			{
+				start: chunkStart + openIdx,
+				end: chunkStart + openIdx + 1,
+				style: 'md-emphasis-marker',
+			},
+			{
+				start: chunkStart + openIdx + fullLen - 1,
+				end: chunkStart + openIdx + fullLen,
+				style: 'md-emphasis-marker',
+			},
+		);
+	}
+
+	// Links: [text](url) — `[` is cosmetic, `](url)` is cosmetic, text typeable.
+	for (const match of segment.matchAll(/\[([^\]\n]+)]\(([^)\n]+)\)/g)) {
+		const idx = match.index;
+		const textLen = match[1]!.length;
+		// Leading `[`
+		spans.push(
+			{
+				start: chunkStart + idx,
+				end: chunkStart + idx + 1,
+				style: 'md-link-syntax',
+			},
+			{
+				start: chunkStart + idx + 1 + textLen,
+				end: chunkStart + idx + match[0].length,
+				style: 'md-link-syntax',
+			},
+		);
+	}
+
+	return spans;
+}
+
 export function computeTypeableIndices(
 	text: string,
 	chunks: Chunk[] = [],
@@ -154,6 +356,15 @@ export function computeTypeableIndices(
 	// Filter base by removing cosmetic positions.
 	return baseIndices.filter(i => !cosmeticPositions.has(i));
 }
+
+// Characters that render fine but can't be reasonably typed on a standard
+// keyboard *and* have no clean 1:1 ASCII substitute. These are entirely skipped
+// (cursor jumps past). Chars that do have an ASCII partner (em-dash → `-`,
+// smart quotes → `"`/`'`, NBSP → space) live in engine.ts's substitution table
+// instead — they stay typeable and accept the partner keystroke as correct.
+const untypeableChars = new Set([
+	'…', // … horizontal ellipsis (no 1:1 — `...` is three keystrokes)
+]);
 
 function computeBaseTypeableIndices(text: string): readonly number[] {
 	const indices: number[] = [];
@@ -179,6 +390,8 @@ function computeBaseTypeableIndices(text: string): readonly number[] {
 			for (let i = firstContent; i < line.length; i++) {
 				// Skip mid-line tab whitespace
 				if (line[i] === '\t') continue;
+				// Skip unmappable typographic chars (see untypeableChars).
+				if (untypeableChars.has(line[i]!)) continue;
 				indices.push(pos + i);
 			}
 		}

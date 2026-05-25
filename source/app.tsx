@@ -52,9 +52,7 @@ export default function App({text: initialText, chunker}: Props) {
 
 	// Recomputed only when text or chunker changes
 	const chunks = useMemo(() => chunker(text), [text, chunker]);
-	const focusedChunk = chunks.find(
-		chunk => chunk.start <= focusPos && focusPos < chunk.end,
-	);
+	const focusedChunk = chunks.findLast(chunk => chunk.start <= focusPos);
 
 	const lineForPos = (pos: number) =>
 		Math.max(
@@ -67,20 +65,37 @@ export default function App({text: initialText, chunker}: Props) {
 		? lineForPos(focusedChunk.end - 1) + 1
 		: lineRows.length;
 
-	const isDone = keystrokes.length === text.length;
-
 	const elapsedMinutes =
 		startedAt !== undefined && endedAt !== undefined
 			? (endedAt - startedAt) / 1000 / 60
 			: 0;
 
-	// Standard WPM convention: "word" = 5 chars (used by every type racer)
-	const wpm =
-		elapsedMinutes > 0 ? Math.round(text.length / 5 / elapsedMinutes) : 0;
+	// What character was the user supposed to type at keystroke index `i`?
+	// Translates from keystroke-space to text-space — the canonical lookup
+	// any time keystrokes and typeableIndices need to be related, so callers
+	// don't repeat the parallel-array dance.
+	const expectedAt = (keystrokeIndex: number): string | undefined => {
+		const pos = typeableIndices[keystrokeIndex];
+		return pos === undefined ? undefined : text[pos];
+	};
 
-	// Lenient accuracy (per docs/typing-feel.md): compare final state, not history
-	const correctChars = keystrokes.filter((char, i) => char === text[i]).length;
-	const accuracy = Math.round((correctChars / text.length) * 100);
+	// Standard WPM convention: "word" = 5 chars (used by every type racer).
+	// Denominator is typeableIndices.length (chars actually typed), not
+	// text.length (which includes whitespace/structure the user skipped).
+	const wpm =
+		elapsedMinutes > 0
+			? Math.round(typeableIndices.length / 5 / elapsedMinutes)
+			: 0;
+
+	const correctChars = keystrokes.filter(
+		(char, i) => char === expectedAt(i),
+	).length;
+	// "Of what's been typed, how much is correct?" — converges to final-state
+	// accuracy when typing completes.
+	const accuracy =
+		keystrokes.length > 0
+			? Math.round((correctChars / keystrokes.length) * 100)
+			: 100;
 
 	useInput((input, key) => {
 		if (key.backspace || key.delete) {
@@ -93,6 +108,21 @@ export default function App({text: initialText, chunker}: Props) {
 			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
 		}
 	});
+
+	// Typeable keystrokes done / total
+	const progress = `${keystrokes.length} / ${typeableIndices.length}`;
+
+	// Keystrokes-so-far / 5 / minutes-elapsed-so-far
+	const liveWpm =
+		startedAt !== undefined && endedAt === undefined
+			? Math.round(
+					keystrokes.length / 5 / ((Date.now() - startedAt) / 1000 / 60),
+			  )
+			: wpm;
+
+	const chunkPos = focusedChunk
+		? `chunk ${chunks.indexOf(focusedChunk) + 1} / ${chunks.length}`
+		: '';
 
 	return (
 		<Box flexDirection="column">
@@ -114,14 +144,18 @@ export default function App({text: initialText, chunker}: Props) {
 					</Text>
 				);
 			})}
-			<Text>
-				Typed: {keystrokes.length} / {text.length}
-			</Text>
-			{isDone && (
-				<Text>
-					WPM: {wpm} Accuracy: {accuracy}%
+			<Box
+				borderTop
+				borderStyle="single"
+				borderBottom={false}
+				borderLeft={false}
+				borderRight={false}
+			>
+				<Text dimColor>
+					{chunkPos && `${chunkPos}  ·  `}
+					{progress} keystrokes · {liveWpm} WPM · {accuracy}% accuracy
 				</Text>
-			)}
+			</Box>
 		</Box>
 	);
 }

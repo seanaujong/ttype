@@ -99,25 +99,36 @@ function computeSpans(
 	const lines = chunkText.split('\n');
 	let pos = chunkStart;
 
-	for (const line of lines) {
+	for (const [lineIdx, line] of lines.entries()) {
+		const isLastLine = lineIdx === lines.length - 1;
+		const wholeLineEnd = isLastLine ? pos + line.length : pos + line.length + 1;
+
 		if (line.startsWith('@@')) {
-			spans.push({start: pos, end: pos + line.length, style: 'diff-header'});
-		} else if (
-			line.startsWith('diff --git') ||
-			line.startsWith('index ') ||
-			line.startsWith('--- ') ||
-			line.startsWith('+++ ')
-		) {
-			spans.push({start: pos, end: pos + line.length, style: 'diff-metadata'});
+			spans.push({start: pos, end: wholeLineEnd, style: 'diff-header'});
+		} else if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+			// File-path metadata — must come before the +/- content checks since
+			// they share a prefix char.
+			spans.push({start: pos, end: wholeLineEnd, style: 'diff-metadata'});
 		} else if (line.startsWith('+')) {
+			// Added content: just the leading marker is cosmetic; user types the rest.
 			spans.push({start: pos, end: pos + 1, style: 'diff-add'});
 		} else if (line.startsWith('-')) {
-			spans.push({start: pos, end: pos + 1, style: 'diff-remove'});
+			// Removed content: the entire line is cosmetic. Typing through a diff
+			// practices the *new* file; old text isn't part of the result.
+			spans.push({start: pos, end: wholeLineEnd, style: 'diff-remove'});
 		} else if (line.startsWith(' ')) {
+			// Context line: leading space is cosmetic; user types the content.
 			spans.push({start: pos, end: pos + 1, style: 'diff-context'});
+		} else if (line.length > 0) {
+			// Anything else non-blank — `new file mode`, `index ...`, `similarity
+			// index`, `rename from/to`, `\ No newline at end of file`, etc. The
+			// catch-all is intentional: rather than enumerate every git metadata
+			// pattern, treat anything that isn't a known content/header line as
+			// metadata.
+			spans.push({start: pos, end: wholeLineEnd, style: 'diff-metadata'});
 		}
 
-		pos += line.length + 1; // +1 for the \n that split() consumed
+		pos += line.length + 1;
 	}
 
 	return spans;

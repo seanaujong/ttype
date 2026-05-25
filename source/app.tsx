@@ -9,38 +9,8 @@ type Props = {
 	readonly viewportLineBudget: number;
 };
 
-export default function App({
-	text: initialText,
-	chunker,
-	viewportLineBudget,
-}: Props) {
-	const [state, dispatch] = useReducer(reducer, initialState(initialText));
-	const {text, keystrokes, typeableIndices, startedAt, endedAt} = state;
-
-	// Recomputed only when initialText changes.
-	const positionToKeystrokeIndex = useMemo(() => {
-		const map = new Map<number, number>();
-		for (const [i, pos] of typeableIndices.entries()) {
-			map.set(pos, i);
-		}
-
-		return map;
-	}, [typeableIndices]);
-
-	const colorFor = (textPos: number) => {
-		const ki = positionToKeystrokeIndex.get(textPos);
-		if (ki === undefined) return 'gray';
-		if (ki >= keystrokes.length) return undefined;
-		return keystrokes[ki] === text[textPos] ? 'green' : 'red';
-	};
-
-	// Undefined when at the end
-	const cursorPos = typeableIndices[keystrokes.length];
-	const isCursor = (textPos: number) => textPos === cursorPos;
-
-	// Recomputed only when initialText changes. Re-running this loop on every keystroke
-	// is wasted work — line structure is a property of the source, not of typing
-	// progress.
+// Lines + lookup. lineForPos closes over lineRows.
+function useLineLayout(text: string) {
 	const lineRows = useMemo(() => {
 		const rows: Array<{line: string; start: number}> = [];
 		let pos = 0;
@@ -52,18 +22,36 @@ export default function App({
 		return rows;
 	}, [text]);
 
-	const focusPos =
-		cursorPos ?? typeableIndices[typeableIndices.length - 1] ?? 0;
-
-	// Recomputed only when text or chunker changes
-	const chunks = useMemo(() => chunker(text), [text, chunker]);
-	const focusedChunk = chunks.findLast(chunk => chunk.start <= focusPos);
-
 	const lineForPos = (pos: number) =>
 		Math.max(
 			0,
 			lineRows.findLastIndex(row => row.start <= pos),
 		);
+
+	return {lineRows, lineForPos};
+}
+
+// Chunks, focused chunk, and the line range to render. The viewport
+// expands greedily outward from the focused chunk, taking the smaller
+// neighbor first until viewportLineBudget is reached.
+function useChunkViewport({
+	text,
+	chunker,
+	focusPos,
+	lineRows,
+	lineForPos,
+	viewportLineBudget,
+}: {
+	readonly text: string;
+	readonly chunker: Chunker;
+	readonly focusPos: number;
+	readonly lineRows: ReadonlyArray<{line: string; start: number}>;
+	readonly lineForPos: (pos: number) => number;
+	readonly viewportLineBudget: number;
+}) {
+	// Recomputed only when text or chunker changes.
+	const chunks = useMemo(() => chunker(text), [text, chunker]);
+	const focusedChunk = chunks.findLast(chunk => chunk.start <= focusPos);
 
 	const chunkLines = (chunk: Chunk): number =>
 		lineForPos(chunk.end - 1) - lineForPos(chunk.start) + 1;
@@ -71,12 +59,6 @@ export default function App({
 	let firstChunkIdx = focusedChunk ? chunks.indexOf(focusedChunk) : -1;
 	let lastChunkIdx = firstChunkIdx;
 	let totalLines = focusedChunk ? chunkLines(focusedChunk) : 0;
-
-	// True if this text position is inside the focused chunk (for dimming logic).
-	const isInFocus = (pos: number) =>
-		focusedChunk !== undefined &&
-		pos >= focusedChunk.start &&
-		pos < focusedChunk.end;
 
 	if (focusedChunk) {
 		while (totalLines < viewportLineBudget) {
@@ -116,11 +98,68 @@ export default function App({
 		? lineForPos(lastVisibleChunk.end - 1) + 1
 		: lineRows.length;
 
-	const elapsedMinutes =
-		startedAt !== undefined && endedAt !== undefined
-			? (endedAt - startedAt) / 1000 / 60
-			: 0;
+	// True if this text position is inside the focused chunk (for dimming logic).
+	const isInFocus = (pos: number) =>
+		focusedChunk !== undefined &&
+		pos >= focusedChunk.start &&
+		pos < focusedChunk.end;
 
+	return {chunks, focusedChunk, chunkStartLine, chunkEndLine, isInFocus};
+}
+
+// Per-character display decisions: what color to paint each text position,
+// and whether the cursor sits there.
+function useCharacterStyling({
+	text,
+	keystrokes,
+	typeableIndices,
+	cursorPos,
+}: {
+	readonly text: string;
+	readonly keystrokes: string[];
+	readonly typeableIndices: readonly number[];
+	readonly cursorPos: number | undefined;
+}) {
+	// Recomputed only when typeableIndices changes.
+	const positionToKeystrokeIndex = useMemo(() => {
+		const map = new Map<number, number>();
+		for (const [i, pos] of typeableIndices.entries()) {
+			map.set(pos, i);
+		}
+
+		return map;
+	}, [typeableIndices]);
+
+	const colorFor = (textPos: number) => {
+		const ki = positionToKeystrokeIndex.get(textPos);
+		if (ki === undefined) return 'gray';
+		if (ki >= keystrokes.length) return undefined;
+		return keystrokes[ki] === text[textPos] ? 'green' : 'red';
+	};
+
+	const isCursor = (textPos: number) => textPos === cursorPos;
+
+	return {colorFor, isCursor};
+}
+
+// Session-meta derivations for the status row.
+function useStats({
+	text,
+	keystrokes,
+	typeableIndices,
+	startedAt,
+	endedAt,
+	focusedChunk,
+	chunks,
+}: {
+	readonly text: string;
+	readonly keystrokes: string[];
+	readonly typeableIndices: readonly number[];
+	readonly startedAt: number | undefined;
+	readonly endedAt: number | undefined;
+	readonly focusedChunk: Chunk | undefined;
+	readonly chunks: Chunk[];
+}) {
 	// What character was the user supposed to type at keystroke index `i`?
 	// Translates from keystroke-space to text-space — the canonical lookup
 	// any time keystrokes and typeableIndices need to be related, so callers
@@ -129,6 +168,11 @@ export default function App({
 		const pos = typeableIndices[keystrokeIndex];
 		return pos === undefined ? undefined : text[pos];
 	};
+
+	const elapsedMinutes =
+		startedAt !== undefined && endedAt !== undefined
+			? (endedAt - startedAt) / 1000 / 60
+			: 0;
 
 	// Standard WPM convention: "word" = 5 chars (used by every type racer).
 	// Denominator is typeableIndices.length (chars actually typed), not
@@ -148,18 +192,6 @@ export default function App({
 			? Math.round((correctChars / keystrokes.length) * 100)
 			: 100;
 
-	useInput((input, key) => {
-		if (key.backspace || key.delete) {
-			dispatch({kind: 'BACKSPACE'});
-		} else if (key.escape) {
-			dispatch({kind: 'RESET'});
-		} else if (key.return) {
-			dispatch({kind: 'TYPE_CHAR', char: '\n', at: Date.now()});
-		} else if (input) {
-			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
-		}
-	});
-
 	// Typeable keystrokes done / total
 	const progress = `${keystrokes.length} / ${typeableIndices.length}`;
 
@@ -174,6 +206,62 @@ export default function App({
 	const chunkPos = focusedChunk
 		? `chunk ${chunks.indexOf(focusedChunk) + 1} / ${chunks.length}`
 		: '';
+
+	return {progress, liveWpm, accuracy, chunkPos};
+}
+
+export default function App({
+	text: initialText,
+	chunker,
+	viewportLineBudget,
+}: Props) {
+	const [state, dispatch] = useReducer(reducer, initialState(initialText));
+	const {text, keystrokes, typeableIndices, startedAt, endedAt} = state;
+
+	const cursorPos = typeableIndices[keystrokes.length];
+	const focusPos =
+		cursorPos ?? typeableIndices[typeableIndices.length - 1] ?? 0;
+
+	const {lineRows, lineForPos} = useLineLayout(text);
+
+	const {chunks, focusedChunk, chunkStartLine, chunkEndLine, isInFocus} =
+		useChunkViewport({
+			text,
+			chunker,
+			focusPos,
+			lineRows,
+			lineForPos,
+			viewportLineBudget,
+		});
+
+	const {colorFor, isCursor} = useCharacterStyling({
+		text,
+		keystrokes,
+		typeableIndices,
+		cursorPos,
+	});
+
+	const {progress, liveWpm, accuracy, chunkPos} = useStats({
+		text,
+		keystrokes,
+		typeableIndices,
+		startedAt,
+		endedAt,
+		focusedChunk,
+		chunks,
+	});
+
+	useInput((input, key) => {
+		if (key.backspace || key.delete) {
+			dispatch({kind: 'BACKSPACE'});
+		} else if (key.escape) {
+			dispatch({kind: 'RESET'});
+		} else if (key.return) {
+			dispatch({kind: 'TYPE_CHAR', char: '\n', at: Date.now()});
+		} else if (input) {
+			dispatch({kind: 'TYPE_CHAR', char: input, at: Date.now()});
+		}
+	});
 
 	return (
 		<Box flexDirection="column">

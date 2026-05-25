@@ -1,6 +1,6 @@
-import { Box, Text, useInput } from 'ink';
-import React, { useMemo, useReducer } from 'react';
-import { initialState, reducer } from './engine.js';
+import {Box, Text, useInput} from 'ink';
+import React, {useMemo, useReducer} from 'react';
+import {initialState, reducer} from './engine.js';
 
 type Props = {
 	readonly text: string;

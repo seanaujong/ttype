@@ -119,3 +119,22 @@ test('computeTypeableIndices skips leading whitespace per line', t => {
 	const state = initialState('a\n  b');
 	t.deepEqual(state.typeableIndices, [0, 1, 4]);
 });
+
+test('computeTypeableIndices skips blank lines entirely', t => {
+	const state = initialState('a\n\nb');
+	// Positions: a=0, \n=1, ''=(blank, no pos), \n=2, b=3
+	// Typeable: a (0), \n after 'a' (1), b (3). The blank's \n (2) is not.
+	t.deepEqual(state.typeableIndices, [0, 1, 3]);
+});
+
+test('computeTypeableIndices collapses multiple blank lines to one Enter', t => {
+	const state = initialState('a\n\n\n\nb');
+	// Three blank lines between a and b. Only one \n is typeable.
+	t.deepEqual(state.typeableIndices, [0, 1, 5]);
+});
+
+test('computeTypeableIndices does not produce a trailing newline after the last non-blank line', t => {
+	const state = initialState('a\n\n');
+	// 'a', then two blank-ish lines. No \n typeable after 'a'.
+	t.deepEqual(state.typeableIndices, [0]);
+});

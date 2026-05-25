@@ -33,7 +33,18 @@ function computeTypeableIndices(text: string): readonly number[] {
 	let pos = 0;
 	const lines = text.split('\n');
 
+	// The last line worth advancing to. Used downstream to decide whether a
+	// trailing newline is typeable — it only is if non-blank content still
+	// follows.
+	const lastNonBlankIdx = lines.findLastIndex(line => line.trim() !== '');
+
 	for (const [lineIdx, line] of lines.entries()) {
+		// Skip blank lines
+		if (line.trim() === '') {
+			pos += line.length + 1;
+			continue;
+		}
+
 		// Skip leading whitespace by
 		// finding the first non-leading-whitespace char in this line, if any
 		const firstContent = line.search(/[^ \t]/);
@@ -43,8 +54,9 @@ function computeTypeableIndices(text: string): readonly number[] {
 			}
 		}
 
-		// Include the newline separator (every line but the last has one)
-		if (lineIdx < lines.length - 1) {
+		// Push the trailing newline only if a non-blank line still follows.
+		// Otherwise the user has nowhere to advance to via Enter.
+		if (lineIdx < lastNonBlankIdx) {
 			indices.push(pos + line.length);
 		}
 

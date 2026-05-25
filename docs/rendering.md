@@ -40,7 +40,16 @@ type Chunk = {
 	start: number; // character offset (inclusive)
 	end: number; // character offset (exclusive)
 	label?: string; // optional — "function foo", "hunk 1", etc.
+	kind?: ChunkKind; // optional — see "hybrid documents" below
 };
+
+type ChunkKind =
+	| 'prose'
+	| 'code'
+	| 'heading'
+	| 'fenced-code'
+	| 'diff-hunk'
+	| string;
 
 type Chunker = (text: string) => Chunk[];
 ```
@@ -53,6 +62,43 @@ The renderer:
 - Renders that chunk, padding with neighbors if there's room.
 
 Different input kinds get different chunkers, picked by the adapter (file extension, `--diff` flag, etc.). The renderer code doesn't change.
+
+### Hybrid documents
+
+Real-world content often mixes shapes within a single document — markdown with embedded code blocks, GitHub PR descriptions with diff snippets, design docs with prose + ASCII diagrams + sample code, Slack messages with text + code snippets. The chunker is the layer that recognizes these transitions.
+
+The `kind` field on each chunk tells the renderer what's inside, so per-kind decoration can apply: syntax highlighting on `fenced-code`, dim heading prefixes on `heading`, ANSI-styled `+`/`-` lines on `diff-hunk`. The renderer reads `kind` and switches behavior; the engine never sees the field.
+
+A markdown chunker for a doc like:
+
+````
+# Introduction
+
+Some prose explaining the idea.
+
+​```ts
+const x = 1;
+​```
+
+More prose.
+````
+
+…produces something like:
+
+```ts
+[
+	{start: 0, end: 16, kind: 'heading', label: '# Introduction'},
+	{start: 17, end: 50, kind: 'prose', label: 'paragraph 1'},
+	{start: 51, end: 70, kind: 'fenced-code', label: 'ts code block'},
+	{start: 71, end: 82, kind: 'prose', label: 'paragraph 2'},
+];
+```
+
+Decisions worth noting up front:
+
+- **Start flat, defer hierarchical chunks.** A `chunks?: Chunk[]` field for sub-chunking inside a code block is tempting but adds tree-traversal logic everywhere chunks are consumed. Flat chunks + per-kind handling in the renderer covers most cases; hierarchical chunks earn their place if and when a real use case demands them.
+- **Per-kind rendering, not per-file.** The same doc can switch decoration mid-stream as kinds change. This is the _layerable rendering_ property at the chunk granularity instead of the document granularity.
+- **Kind is renderer concern, not engine concern.** The engine still sees uniform text and a typing-path cursor. Kinds inform display, not what the user types.
 
 ### Per-input chunkers
 

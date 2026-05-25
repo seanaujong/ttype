@@ -11,6 +11,7 @@ This doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`
 - **TUI rendering is "choose what to render", not "scroll to it"** — we control what bytes get written, not the terminal's scroll buffer.
 - **Raw text in; chunkers detect structure** — composition with `cat`, `git diff`, etc. is preserved by keeping raw text as the primary input. Pre-formatting is a possible future power-user option, not the default.
 - **Chunkers are their own module** — `source/chunker.ts` parallels `source/engine.ts`: pure function over text, no UI, no I/O, testable in isolation. The React component composes the two.
+- **Multi-chunk viewport** — show the focused chunk plus as many neighbors as fit, dimmed. Documents have flow; isolating one chunk strips the context that gives it meaning.
 
 ## Layerable rendering
 
@@ -121,6 +122,39 @@ A 500-line function doesn't fit in a 30-row viewport. The fallback policy:
 - **Status indicator.** A single status row at the bottom shows "function foo, line 23 of 60" or similar — gives the user a sense of where they are in the larger structure.
 
 Line-windowing is the floor: it always works. Chunking is the ceiling: better UX when chunks are reasonable sizes.
+
+### Multi-chunk viewport
+
+The complementary case to "chunk too big" is "chunk too small" — a 3-line paragraph alone in the viewport with the rest of the screen blank, while the surrounding paragraphs that give it meaning sit just out of view. Documents have **flow**; a single isolated chunk strips that.
+
+**The principle:** show the focused chunk **plus as many neighbors as fit**, with the focused chunk in normal color and neighbors **dimmed**. The reader's eye gets sharp focus on what they're typing and de-emphasized peripheral text for context — the same mental model the brain uses when reading a printed page.
+
+The visible viewport adapts to chunk size:
+
+- Small focused chunk → many neighbors visible. Reads almost like the whole document with one section highlighted.
+- Large focused chunk → few neighbors (or none). Same as the current "stick on one chunk" behavior.
+- Very large focused chunk → falls back to line-window-inside-chunk (the "chunk too big" case above).
+
+**Greedy expansion algorithm:**
+
+- Start with just the focused chunk.
+- Look at both immediate neighbors. Pick the smaller one (maximizes total chunks shown) that still fits in the remaining line budget.
+- Repeat until no neighbor fits.
+- Render all included chunks; per-line, dim everything that isn't in the focused chunk.
+
+**Why dim instead of border or other separation:**
+
+- Borders add visual chrome that competes with the source content. Dimming is invisible-when-not-relevant.
+- The user already gets a chunk identity from the status row (`chunk 2 / 5`); dimming reinforces "this is the _focused_ one" without rebroadcasting structure.
+- Standard editor convention. Most IDEs use dim/fade for code outside the cursor's scope.
+
+**Trade-offs to know:**
+
+- **Chunk-boundary jitter.** When the cursor crosses a chunk boundary, the focused chunk changes and the viewport may shift. Dimmed neighbors mean the shift is _less_ jarring (the now-focused chunk was already on screen), but some movement is unavoidable. Sticky behavior — only re-expanding the neighbor set when membership actually changes — keeps jitter to a minimum.
+- **Dynamic viewport size.** Line budget should come from `process.stdout.rows` (minus status row height) and re-subscribe on `SIGWINCH`. Static budget works for a first cut.
+- **Asymmetric expansion** (e.g., near the start of the document, only "next" neighbors exist) — the algorithm degenerates gracefully; the line budget fills with what's available.
+
+**What this changes architecturally:** nothing. The engine doesn't move. The chunker doesn't move. The renderer's "which lines to render and how to dim them" logic gets richer. This is the _layerable rendering_ property in action — viewport policy is a renderer choice that can grow without touching the layers below.
 
 ### Why not just pagination
 

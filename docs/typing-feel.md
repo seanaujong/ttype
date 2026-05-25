@@ -1,6 +1,6 @@
 # Making typing feel good
 
-Where [use-cases.md](use-cases.md) covers _what people use ttype for_, this doc covers _how the act of typing should feel_. The north star: **chill, not strict**. Mistakes don't ruin runs. Structural whitespace doesn't punish you. Visual feedback stays local and proportionate.
+This doc covers _how the act of typing should feel_. The north star: **chill, not strict**. Mistakes don't ruin runs. Structural whitespace doesn't punish you. Visual feedback stays local and proportionate.
 
 These principles take precedence over "what other type racers do." We cite prior art to learn from it, not copy.
 
@@ -8,8 +8,7 @@ These principles take precedence over "what other type racers do." We cite prior
 
 - **Chill > strict** — wrong keys are marked and counted, not halted on. No strict mode in v1.
 - **Render the structure, require the content** — whitespace, blank lines, and (later) diff/markdown markers are displayed but auto-skipped from the typing path.
-- **Errors stay local** — red is bounded to the actual wrong chars you typed; never cascades into future correct chars.
-- **Words are sync points** — whitespace closes the current word and advances to the next; drift is bounded to one word, not the whole line.
+- **Errors stay local** — each wrong key marks one red char. The cursor and source-comparison frame don't drift apart unless the user types insertions or deletions (which they recover from via backspace).
 - **Correction is cheap and obvious** — backspace is seamless, symmetric with forward motion, and carries no accuracy penalty.
 - **Cursor is visible and obvious** — inverse-video background on the next char, not a thin caret.
 
@@ -34,14 +33,13 @@ One wrong character should not tank a run, halt the cursor, or feel like a big d
 
 ## Render the structure, require the content
 
-The screen shows structural / cosmetic characters in their original positions, but ttype doesn't make you type them. Whitespace is the simplest example; later this same principle handles diff line markers (`+`/`-`/` `, `@@` hunk headers) and possibly markdown structural chars. Adapters are the layer that decides what's cosmetic for a given input; the engine never branches on input kind. See [engine-design.md](engine-design.md) for the span shape this implies.
+The screen shows structural / cosmetic characters in their original positions, but ttype doesn't make you type them. Whitespace is the simplest example; later this same principle handles diff line markers (`+`/`-`/` `, `@@` hunk headers) and possibly markdown structural chars. Adapters are the layer that decides what's cosmetic for a given input; the engine never branches on input kind.
 
 **Rules:**
 
 - **Leading whitespace** on a line: rendered (so the shape is intact), but the cursor _starts_ at the first non-whitespace character.
-- **Enter at end of line** advances the cursor to the first non-whitespace character of the next non-blank line. Blank lines are skipped entirely (visible, but not part of the typing path).
-- **Enter mid-line** is allowed and seamless: the remaining untyped characters on the current line are marked red (you "missed" them), and the cursor jumps to the first non-whitespace character of the next non-blank line. No halt, no penalty beyond the visual mark.
-- **Tabs** are rendered however the source contains them but never count as required keystrokes.
+- **Enter at end of line** advances the cursor past the newline; blank lines between content are skipped entirely (visible, but not part of the typing path). Multiple blank lines in a row collapse — one Enter takes the cursor to the first non-whitespace character of the next non-blank line.
+- **Tabs** are rendered however the source contains them but never count as required keystrokes — leading or mid-line.
 - **Trailing whitespace** is stripped on ingestion. Always.
 
 The effective rule: **the cursor only ever rests on a character the user is expected to actually type.** Indentation, blank lines, and other structural whitespace are _displayed-but-skipped_.
@@ -50,7 +48,7 @@ This is the load-bearing design decision in this doc. It means the engine's curs
 
 ## Errors stay local
 
-A single wrong keystroke must not visually contaminate everything that comes after.
+A single wrong keystroke marks one char red — it doesn't infect the rest of the line.
 
 **Rules:**
 
@@ -62,90 +60,38 @@ A single wrong keystroke must not visually contaminate everything that comes aft
 
 So "red text" is bounded to _the actual wrong chars you've typed and not corrected_. The visual maximum red on screen is the count of uncorrected wrong keystrokes — never a region.
 
-Optional (decide later): a subtle underline on the _word_ containing an uncorrected error, so it's findable when you're scrolling fast. Adds visibility without staining future text.
+### Known limit — insertion drift
 
-## Words are sync points
+The flat-cursor engine has one known weakness: **inserting an extra character shifts the comparison frame for everything after it**. If the user types one too many letters in a word, every subsequent expected character is off by one against the source, and a cascade of red lights up until the user notices and backspaces.
 
-_Errors stay local_ takes care of per-character locality (one wrong key marks one red char). This principle takes the same idea up one level: **per-word locality**. The cursor is word-aware, and whitespace acts as a _sync point_ that resets the cursor regardless of what got typed inside the word. The damage from a drift (typing extra characters, undertyping, fat-fingering halfway through a word) is bounded to that one word; the next word starts fresh.
-
-**The cursor is word-aware.** Instead of advancing 1:1 through the entire source, the cursor tracks `{ word, charIndex, extras }`. Each keystroke is interpreted against the _current_ word, not against an absolute position in the source.
-
-**Rules:**
-
-- **Within a word:** non-whitespace keys match against the char at `charIndex`. Right keys advance with green; wrong keys advance with red. If the user types past the end of the word, those keys go into a per-word `extras` list (rendered after the word, see open questions for the style).
-- **At any whitespace key** (space, tab, Enter): the current word **closes**. Anything not yet typed becomes missed (auto-marked red, same category as Enter-mid-line). `extras` are kept for the review. The cursor advances to the start of the next word with `charIndex = 0`.
-- **Backspace within a word:** retreats `charIndex` (or pops the last extra). Symmetric with forward motion.
-- **Backspace from the start of a word:** retreats into the previous word at its last position; the previous word is _reopened_ for correction.
-
-**What "word" means is decided by the adapter, not the engine.** For v1, every adapter uses _whitespace-delimited tokens_ as words — that's good enough for prose and acceptable for code. Later adapters can refine (a code adapter might also split on operators, a diff adapter might split on the leading `+`/`-`/` ` line markers) without the engine changing. See the adapter shape in [engine-design.md](engine-design.md).
-
-**No-whitespace inputs are a known limit.** A 200-char URL or a long single-token identifier has no internal sync points; drift inside it still cascades the way it would on a whole line. We accept this — it's a rare edge case, and users typing URLs aren't the core use case.
-
-### How a word renders
-
-Two-line per word, column-aligned. The display is a _diff view_ between source and typed:
-
-- **Mainline** — what the user _actually_ typed, character by character. Correct chars normal; any char that diverges from the source (wrongs _and_ extras) is **struck-through in red**. The above-line disambiguates which category each strike is.
-- **Above line** — what the user was _supposed_ to type at each column where the mainline disagrees. Correctly-typed columns are blank above (no divergence to flag). The source line ends at the word's length; columns past that on the mainline have no above-line counterpart — that's how the reader tells extras from wrongs.
-- **Above-line color** — a quiet "reference" color (e.g., dim cyan or muted yellow). Definitely not green or red, since those carry "correct" / "wrong" meaning on the mainline. Final color choice deferred to when we build the renderer.
-
-Example. Source: `Hello`. User typed: `Hxxxllo` (7 keys: H correctly, then `xxx` instead of `ell`, then `l` instead of `o`, then `lo` as extras).
-
-```
- ello
-Hxxxllo
-```
-
-Reading by column:
-
-- col 0: above blank, main `H` — correct.
-- cols 1–3: above shows `ell` (expected), main shows `xxx` struck-through — three wrongs.
-- col 4: above shows `o`, main shows `l` struck-through — wrong at the last source position.
-- cols 5–6: no above (source ended at col 5), main shows `lo` struck-through — extras past the end of `Hello`. _They're styled identically to wrongs; the absence of an above-line entry is what makes them readable as extras._
-
-A perfectly typed word renders with the above-line completely blank, so the two-line display effectively collapses to one line for clean stretches. Divergence is what makes the above-line appear. This keeps the screen quiet when typing is going well and surfaces exactly where it went wrong when it isn't.
-
-**Engine state vs. rendering:** the engine still distinguishes wrongs from extras as separate categories in the keystroke log and per-word state (review wants the distinction, and stats want the distinction). The unified red strikethrough is a _rendering_ choice — same data, simpler presentation.
-
-**Why this matters:** without word-as-sync-point, the drift problem cascades — one extra keystroke shifts every subsequent character by one position, and the user sees the whole rest of the line turn red even though they were typing the right letters. Word sync points cap the blast radius at one word.
-
-### Backspace into a closed word
-
-Backspacing into a previous word reopens it for correction. Specifically: the cursor lands at the last position of the previous word; any auto-missed marks on that word **revert to untyped** so the user can re-type them. The extras list reverts too — backspace pops the last extra before retreating into the word proper.
-
-We can be relaxed about this because of [engine-design.md](engine-design.md)'s replayability: state is `events.reduce(applyEvent, initial)`, so "revert to a non-broken render state" is literally just "fold a shorter event list." There's no special undo logic to get wrong.
+In practice this is bounded by the user's perception speed (seconds, not minutes) and recovered with backspace. We accept it. The original design considered a more elaborate word-aware engine to bound the cascade automatically; dogfooding the flat version showed the cost-benefit didn't favor it.
 
 ## Correction is cheap and obvious
 
 - **Backspace** moves the cursor back one _typeable_ index (it skips over auto-skipped whitespace the same way forward motion does — symmetric with _render the structure, require the content_).
 - Holding backspace works at the OS key-repeat rate. Nothing special.
-- There is _no penalty_ for using backspace. Accuracy is measured against the _final state_ of the text, not the keystroke history. (This is "lenient accuracy" — see open questions.)
+- There is _no penalty_ for using backspace. Accuracy is measured against the _final state_ of the text, not the keystroke history. (This is "lenient accuracy".)
 
 ## Cursor is visible and obvious
 
-Borrow from TypeRacer's modern UI: the next-to-type character gets a **background highlight** (inverse video), not a thin caret. Carets are easy to lose against monospaced text on dark themes.
+The next-to-type character gets a **background highlight** (inverse video), not a thin caret. Carets are easy to lose against monospaced text on dark themes.
 
-Maybe a subtle underline on the current word so it's findable when scrolling.
+When the cursor sits on a newline (a typeable position with no visible glyph, since the line was split for rendering), the renderer surfaces it as an `↵ENTER` marker at the end of the current line. The user always knows where the next keystroke will land.
 
 ## Engine implications
 
-These principles aren't just visual — they shape the engine's API. Worth surfacing before we write `type Engine = ...`:
+These principles aren't just visual — they shape the engine's API:
 
 - The engine maintains an **ordered list of typeable indices** into the source text. The cursor is always one of these (or `done`).
-- `advance()` moves to the next typeable index; `back()` to the previous. Adapters/renderers never compute `+1`/`-1` themselves.
-- `input(char)` compares against `text[currentIndex]`, records correct/incorrect, advances.
-- The set of typeable indices is computed at ingestion time from configurable rules: strip trailing whitespace, skip leading whitespace, skip blank lines, skip diff line markers (later), etc. These are adapter-configurable, not engine-hardcoded.
-- Renderers receive `(text, typeableIndices, cursorIndex, keystrokeLog)` and produce output. They never mutate engine state.
+- Each keystroke advances the cursor through the typeable list, not through every character. Skipped chars (leading whitespace, tabs, blank lines) are positions the cursor never lands on.
+- Wrong keys advance the cursor anyway (chill mode), with the typed char recorded for accuracy / display. Backspace retreats one typeable position.
+- The set of typeable indices is computed at ingestion time from configurable rules: strip trailing whitespace, skip leading whitespace, skip blank lines, skip tabs, skip diff line markers (later), etc.
+- Renderers receive engine state and produce output. They never mutate engine state.
 
-This keeps the engine general (the _general-purpose engine_ goal in CLAUDE.md) while making "render but don't require" a first-class concept rather than a hack.
+This keeps the engine general while making "render but don't require" a first-class concept rather than a hack.
 
 ## Open questions
 
-- **Word-error underline:** yes or no? (Possibly redundant now that mainline strikethrough + above-line target makes errors obvious — revisit when we build the renderer.)
-- **Space at end of a word with an error:** TypeRacer auto-skips the rest of the word. _Lean: no, keep cursor advancement deterministic._
 - **Per-character mistake breakdown at end-of-run:** useful, but adds end-screen complexity. Defer.
 - **Lenient vs. strict accuracy:** lenient (final-state-based) by default. Strict (every-keystroke-counts) is interesting later as a stat _displayed alongside_, not as the primary number.
-
----
-
-**See also:** [use-cases.md](use-cases.md) for the input-source side of the design, and [../CLAUDE.md](../CLAUDE.md) for the overall goals.
+- **`--strict` mode:** if anyone asks for it, that's the moment to build it. Don't speculate.

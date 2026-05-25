@@ -1,6 +1,6 @@
 import {Box, Text, useInput} from 'ink';
 import React, {useMemo, useReducer} from 'react';
-import {type Chunk, type Chunker} from './chunker.js';
+import {computeTypeableIndices, type Chunk, type Chunker} from './chunker.js';
 import {initialState, reducer} from './engine.js';
 
 type Props = {
@@ -31,26 +31,22 @@ function useLineLayout(text: string) {
 	return {lineRows, lineForPos};
 }
 
-// Chunks, focused chunk, and the line range to render. The viewport
+// Focused chunk and the line range to render. The viewport
 // expands greedily outward from the focused chunk, taking the smaller
 // neighbor first until viewportLineBudget is reached.
 function useChunkViewport({
-	text,
-	chunker,
+	chunks,
 	focusPos,
 	lineRows,
 	lineForPos,
 	viewportLineBudget,
 }: {
-	readonly text: string;
-	readonly chunker: Chunker;
+	readonly chunks: Chunk[];
 	readonly focusPos: number;
 	readonly lineRows: ReadonlyArray<{line: string; start: number}>;
 	readonly lineForPos: (pos: number) => number;
 	readonly viewportLineBudget: number;
 }) {
-	// Recomputed only when text or chunker changes.
-	const chunks = useMemo(() => chunker(text), [text, chunker]);
 	const focusedChunk = chunks.findLast(chunk => chunk.start <= focusPos);
 
 	const chunkLines = (chunk: Chunk): number =>
@@ -104,7 +100,7 @@ function useChunkViewport({
 		pos >= focusedChunk.start &&
 		pos < focusedChunk.end;
 
-	return {chunks, focusedChunk, chunkStartLine, chunkEndLine, isInFocus};
+	return {focusedChunk, chunkStartLine, chunkEndLine, isInFocus};
 }
 
 // Per-character display decisions: what color to paint each text position,
@@ -241,8 +237,20 @@ export default function App({
 	chunker,
 	viewportLineBudget,
 }: Props) {
-	const [state, dispatch] = useReducer(reducer, initialState(initialText));
-	const {text, keystrokes, typeableIndices, startedAt, endedAt} = state;
+	// Top-level setup — computed once at mount (and on text/chunker change).
+	// chunks feed both the engine init (for typeableIndices) and the viewport.
+	const chunks = useMemo(() => chunker(initialText), [initialText, chunker]);
+	const typeableIndices = useMemo(
+		() => computeTypeableIndices(initialText, chunks),
+		[initialText, chunks],
+	);
+
+	// UseReducer's three-arg form: lazy initializer runs once with the typeable
+	// indices we computed above. Two-arg form can't see local derivations.
+	const [state, dispatch] = useReducer(reducer, undefined, () =>
+		initialState(initialText, typeableIndices),
+	);
+	const {text, keystrokes, startedAt, endedAt} = state;
 
 	const cursorPos = typeableIndices[keystrokes.length];
 	const focusPos =
@@ -250,10 +258,9 @@ export default function App({
 
 	const {lineRows, lineForPos} = useLineLayout(text);
 
-	const {chunks, focusedChunk, chunkStartLine, chunkEndLine, isInFocus} =
+	const {focusedChunk, chunkStartLine, chunkEndLine, isInFocus} =
 		useChunkViewport({
-			text,
-			chunker,
+			chunks,
 			focusPos,
 			lineRows,
 			lineForPos,

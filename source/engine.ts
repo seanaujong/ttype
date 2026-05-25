@@ -18,54 +18,17 @@ export type Fixture = {
 	expected: Partial<State>;
 };
 
-export function initialState(text: string): State {
+export function initialState(
+	text: string,
+	typeableIndices: readonly number[],
+): State {
 	return {
 		text,
-		typeableIndices: computeTypeableIndices(text),
+		typeableIndices,
 		keystrokes: [],
 		startedAt: undefined,
 		endedAt: undefined,
 	};
-}
-
-function computeTypeableIndices(text: string): readonly number[] {
-	const indices: number[] = [];
-	let pos = 0;
-	const lines = text.split('\n');
-
-	// The last line worth advancing to. Used downstream to decide whether a
-	// trailing newline is typeable — it only is if non-blank content still
-	// follows.
-	const lastNonBlankIdx = lines.findLastIndex(line => line.trim() !== '');
-
-	for (const [lineIdx, line] of lines.entries()) {
-		// Skip blank lines
-		if (line.trim() === '') {
-			pos += line.length + 1;
-			continue;
-		}
-
-		// Skip leading whitespace by
-		// finding the first non-leading-whitespace char in this line, if any
-		const firstContent = line.search(/[^ \t]/);
-		if (firstContent !== -1) {
-			for (let i = firstContent; i < line.length; i++) {
-				// Skip mid-line tab whitespace
-				if (line[i] === '\t') continue;
-				indices.push(pos + i);
-			}
-		}
-
-		// Push the trailing newline only if a non-blank line still follows.
-		// Otherwise the user has nowhere to advance to via Enter.
-		if (lineIdx < lastNonBlankIdx) {
-			indices.push(pos + line.length);
-		}
-
-		pos += line.length + 1; // +1 for the \n that split() consumed
-	}
-
-	return indices;
 }
 
 export function reducer(state: State, action: Action): State {
@@ -96,7 +59,14 @@ export function reducer(state: State, action: Action): State {
 		}
 
 		case 'RESET': {
-			return initialState(state.text);
+			// Preserve text and typeableIndices (both functions of the source,
+			// unchanged by RESET); clear keystroke/timing state.
+			return {
+				...state,
+				keystrokes: [],
+				startedAt: undefined,
+				endedAt: undefined,
+			};
 		}
 
 		default: {
@@ -106,6 +76,10 @@ export function reducer(state: State, action: Action): State {
 	}
 }
 
-export function replay(text: string, events: Action[]): State {
-	return events.reduce(reducer, initialState(text));
+export function replay(
+	text: string,
+	events: Action[],
+	typeableIndices: readonly number[],
+): State {
+	return events.reduce(reducer, initialState(text, typeableIndices));
 }

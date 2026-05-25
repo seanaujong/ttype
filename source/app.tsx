@@ -1,12 +1,14 @@
 import {Box, Text, useInput} from 'ink';
 import React, {useMemo, useReducer} from 'react';
+import {type Chunker} from './chunker.js';
 import {initialState, reducer} from './engine.js';
 
 type Props = {
 	readonly text: string;
+	readonly chunker: Chunker;
 };
 
-export default function App({text: initialText}: Props) {
+export default function App({text: initialText, chunker}: Props) {
 	const [state, dispatch] = useReducer(reducer, initialState(initialText));
 	const {text, keystrokes, typeableIndices, startedAt, endedAt} = state;
 
@@ -45,17 +47,25 @@ export default function App({text: initialText}: Props) {
 		return rows;
 	}, [text]);
 
-	const cursorLine = text.slice(0, keystrokes.length).split('\n').length - 1;
+	const focusPos =
+		cursorPos ?? typeableIndices[typeableIndices.length - 1] ?? 0;
 
-	const viewportLines = 10;
-	const half = Math.floor(viewportLines / 2);
+	// Recomputed only when text or chunker changes
+	const chunks = useMemo(() => chunker(text), [text, chunker]);
+	const focusedChunk = chunks.find(
+		chunk => chunk.start <= focusPos && focusPos < chunk.end,
+	);
 
-	// The viewport should slide with the cursor.
-	// The cursor should mostly be in the middle, except at the beginning and end of the text.
-	const startFromCenter = cursorLine - half;
-	const startForBottomEdge = lineRows.length - viewportLines;
-	const startLine = Math.max(0, Math.min(startFromCenter, startForBottomEdge));
-	const endLine = Math.min(lineRows.length, startLine + viewportLines);
+	const lineForPos = (pos: number) =>
+		Math.max(
+			0,
+			lineRows.findLastIndex(row => row.start <= pos),
+		);
+
+	const chunkStartLine = focusedChunk ? lineForPos(focusedChunk.start) : 0;
+	const chunkEndLine = focusedChunk
+		? lineForPos(focusedChunk.end - 1) + 1
+		: lineRows.length;
 
 	const isDone = keystrokes.length === text.length;
 
@@ -86,8 +96,8 @@ export default function App({text: initialText}: Props) {
 
 	return (
 		<Box flexDirection="column">
-			{lineRows.slice(startLine, endLine).map(({line, start}, i) => {
-				const lineIndex = startLine + i;
+			{lineRows.slice(chunkStartLine, chunkEndLine).map(({line, start}, i) => {
+				const lineIndex = chunkStartLine + i;
 				return (
 					<Text key={lineIndex}>
 						{[...line].map((char, col) => (

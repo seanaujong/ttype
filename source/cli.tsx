@@ -2,10 +2,11 @@
 import fs from 'node:fs';
 import process from 'node:process';
 import tty from 'node:tty';
-import {render} from 'ink';
 import meow from 'meow';
+import {render} from 'ink';
 import React from 'react';
 import App from './app.js';
+import {blankLineChunker, type Chunker} from './chunker.js';
 
 const cli = meow(
 	`
@@ -40,6 +41,8 @@ function resolveSourceText(path: string | undefined): string {
 	process.exit(1);
 }
 
+const chunker: Chunker = blankLineChunker;
+
 const text = resolveSourceText(cli.input[0]);
 
 const ttyPath = process.platform === 'win32' ? 'CONIN$' : '/dev/tty';
@@ -48,4 +51,4 @@ const interactiveStdin = process.stdin.isTTY
 	? process.stdin
 	: new tty.ReadStream(fs.openSync(ttyPath, 'r'));
 
-render(<App text={text} />, {stdin: interactiveStdin});
+render(<App text={text} chunker={chunker} />, {stdin: interactiveStdin});

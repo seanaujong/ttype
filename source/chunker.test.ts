@@ -151,6 +151,21 @@ test('markdownChunker: link syntax cosmetic; link text typeable', t => {
 	t.is(linkSpans.length, 2);
 });
 
+test('markdownChunker: inline code backticks cosmetic; content typeable', t => {
+	const text = 'Call `applyEvent` to advance.';
+	const chunks = markdownChunker(text);
+	const codeSpans = chunks[0]!.spans!.filter(s => s.style === 'md-code-span');
+	// One span for the opening backtick, one for the closing — each 1 char.
+	t.is(codeSpans.length, 2);
+	t.true(codeSpans.every(s => s.end - s.start === 1));
+	// The code text between the backticks stays in the typing path.
+	const indices = computeTypeableIndices(text, chunks);
+	const contentStart = text.indexOf('applyEvent');
+	for (let i = 0; i < 'applyEvent'.length; i++) {
+		t.true(indices.includes(contentStart + i), `expected ${contentStart + i}`);
+	}
+});
+
 test('markdownChunker: fenced code block becomes its own chunk', t => {
 	const text = '```ts\nconst x = 1;\nconst y = 2;\n```';
 	const chunks = markdownChunker(text);

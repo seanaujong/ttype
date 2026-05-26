@@ -125,6 +125,7 @@ const spanVisuals: Record<SpanKind, SpanVisual> = {
 	'md-heading-prefix': {color: 'gray'}, // '#+ '
 	'md-emphasis-marker': {color: 'gray'}, // ** Or _
 	'md-link-syntax': {color: 'gray'}, // [ and ](url)
+	'md-code-span': {color: 'gray'}, // The `backtick` pair around inline code
 	'md-fence': {color: 'gray'}, // ``` lines
 };
 

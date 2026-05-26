@@ -22,6 +22,7 @@ export type SpanKind =
 	| 'md-heading-prefix'
 	| 'md-emphasis-marker'
 	| 'md-link-syntax'
+	| 'md-code-span'
 	| 'md-fence';
 
 // A region within a chunk that the engine should treat as cosmetic
@@ -143,10 +144,11 @@ function computeSpans(
 //   - `fenced-code` — content between ```...``` fences; the fence lines themselves
 //     are cosmetic, content inside is typeable as-is (verbatim code)
 //   - `prose` — blank-line-delimited paragraphs; spans mark `**bold**` markers,
-//     `_italic_` markers, and link `[`/`](url)` syntax (link *text* stays typeable)
+//     `_italic_` markers, inline `` `code` `` backticks, and link `[`/`](url)`
+//     syntax (the content between markers stays typeable)
 //
-// Lists, block quotes, and inline backticks are deferred — they add value but
-// not architecture; revisit once v1 proves out by dogfooding actual docs.
+// Lists and block quotes are deferred — they add value but not architecture;
+// revisit once dogfooding actual docs shows they're worth it.
 export const markdownChunker: Chunker = text => {
 	const chunks: Chunk[] = [];
 	const lines = text.split('\n');
@@ -264,8 +266,8 @@ export const markdownChunker: Chunker = text => {
 	return chunks;
 };
 
-// Inline markdown decoration: bold (`**…**`), italic (`_…_`), and links
-// (`[text](url)`). Markers are cosmetic; the *content* between them stays
+// Inline markdown decoration: bold (`**…**`), italic (`_…_`), inline code
+// (`` `…` ``), and links (`[text](url)`). Markers are cosmetic; content stays
 // typeable. Italics use the underscore form only — single-asterisk italic
 // would need lookarounds to avoid matching inside `**bold**`, not worth it
 // for v1 since we mostly use `_…_` in our own docs.
@@ -290,6 +292,24 @@ function computeProseSpans(
 				start: chunkStart + idx + match[0].length - 2,
 				end: chunkStart + idx + match[0].length,
 				style: 'md-emphasis-marker',
+			},
+		);
+	}
+
+	// Inline code: `content` — the backtick pair is cosmetic, content typeable.
+	// Single-char markers (vs bold's two); otherwise identical to the bold case.
+	for (const match of segment.matchAll(/`[^`\n]+`/g)) {
+		const idx = match.index;
+		spans.push(
+			{
+				start: chunkStart + idx,
+				end: chunkStart + idx + 1,
+				style: 'md-code-span',
+			},
+			{
+				start: chunkStart + idx + match[0].length - 1,
+				end: chunkStart + idx + match[0].length,
+				style: 'md-code-span',
 			},
 		);
 	}

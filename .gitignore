@@ -1,3 +1,7 @@
 node_modules
 dist
 docs/diary/
+
+# macOS / editor cruft
+.DS_Store
+.vscode/

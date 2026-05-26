@@ -1,6 +1,11 @@
 import {Box, Text, useInput} from 'ink';
 import React, {useMemo, useReducer} from 'react';
-import {computeTypeableIndices, type Chunk, type Chunker} from './chunker.js';
+import {
+	computeTypeableIndices,
+	type Chunk,
+	type Chunker,
+	type SpanKind,
+} from './chunker.js';
 import {initialState, matchesExpected, reducer} from './engine.js';
 
 type Props = {
@@ -103,20 +108,42 @@ function useChunkViewport({
 	return {focusedChunk, chunkStartLine, chunkEndLine, isInFocus};
 }
 
-// Per-character display decisions: what color to paint each text position,
+// How each cosmetic SpanKind renders. The single source of truth that replaces
+// the old prefix-string heuristic: the renderer decorates from the spans the
+// chunker already produced, rather than re-detecting structure from raw line
+// text. Because it's a Record over the SpanKind union, adding a new kind (e.g.
+// markdown inline-code) won't compile until it has a visual here — the compiler
+// enforces that every span a chunker can emit is drawable.
+type SpanVisual = {color?: string; dimColor?: boolean};
+
+const spanVisuals: Record<SpanKind, SpanVisual> = {
+	'diff-add': {color: 'green'}, // Leading '+' marker; the added content is typed
+	'diff-remove': {color: 'red', dimColor: true}, // Whole removed line — display only
+	'diff-header': {dimColor: true}, // @@ hunk header
+	'diff-metadata': {dimColor: true}, // Diff --git, index, ---/+++ paths
+	'diff-context': {color: 'gray'}, // Leading space on unchanged lines
+	'md-heading-prefix': {color: 'gray'}, // '#+ '
+	'md-emphasis-marker': {color: 'gray'}, // ** Or _
+	'md-link-syntax': {color: 'gray'}, // [ and ](url)
+	'md-fence': {color: 'gray'}, // ``` lines
+};
+
+// Per-character display decisions: what color/dim to paint each text position,
 // and whether the cursor sits there.
 function useCharacterStyling({
 	text,
 	keystrokes,
 	typeableIndices,
+	chunks,
 	cursorPos,
 }: {
 	readonly text: string;
 	readonly keystrokes: string[];
 	readonly typeableIndices: readonly number[];
+	readonly chunks: Chunk[];
 	readonly cursorPos: number | undefined;
 }) {
-	// Recomputed only when typeableIndices changes.
+	// Typeable text position → its keystroke index (inverse of the parallel array).
 	const positionToKeystrokeIndex = useMemo(() => {
 		const map = new Map<number, number>();
 		for (const [i, pos] of typeableIndices.entries()) {
@@ -126,42 +153,42 @@ function useCharacterStyling({
 		return map;
 	}, [typeableIndices]);
 
-	const colorFor = (textPos: number) => {
+	// Cosmetic text position → the SpanKind covering it. Built once per chunk set;
+	// this is what lets styleFor decorate from span data instead of re-parsing
+	// lines. (Spans don't overlap in practice; on overlap, last write wins.)
+	const positionToSpanKind = useMemo(() => {
+		const map = new Map<number, SpanKind>();
+		for (const chunk of chunks) {
+			for (const span of chunk.spans ?? []) {
+				for (let i = span.start; i < span.end; i++) {
+					map.set(i, span.style);
+				}
+			}
+		}
+
+		return map;
+	}, [chunks]);
+
+	// Mutually exclusive by construction: computeTypeableIndices subtracts all
+	// span ranges from the typeable set, so a position is either typeable (gets
+	// green/red typing feedback) or cosmetic (gets a span visual, or default
+	// gray) — never both.
+	const styleFor = (textPos: number): SpanVisual => {
 		const ki = positionToKeystrokeIndex.get(textPos);
-		if (ki === undefined) return 'gray';
-		if (ki >= keystrokes.length) return undefined;
-		return matchesExpected(keystrokes[ki], text[textPos]) ? 'green' : 'red';
+		if (ki !== undefined) {
+			if (ki >= keystrokes.length) return {}; // Not yet typed
+			return {
+				color: matchesExpected(keystrokes[ki], text[textPos]) ? 'green' : 'red',
+			};
+		}
+
+		const kind = positionToSpanKind.get(textPos);
+		return kind ? spanVisuals[kind] : {color: 'gray'};
 	};
 
 	const isCursor = (textPos: number) => textPos === cursorPos;
 
-	return {colorFor, isCursor};
-}
-
-// Diff line decoration. Returns per-line dim hint (for metadata) and an
-// optional color for the leading prefix char only — leaving the rest of the
-// line to per-character typing feedback (green = correct, red = wrong)
-// without competing for the same visual channel.
-function diffLineStyle(line: string): {
-	dimColor?: boolean;
-	prefixColor?: string;
-} {
-	// Hunk header
-	if (line.startsWith('@@')) return {dimColor: true};
-
-	// File-level metadata (must come before '+'/'-' matches,
-	// since `--- ` and `+++ ` start with - / +)
-	if (line.startsWith('diff --git')) return {dimColor: true};
-	if (line.startsWith('index ')) return {dimColor: true};
-	if (line.startsWith('--- ')) return {dimColor: true};
-	if (line.startsWith('+++ ')) return {dimColor: true};
-
-	// Added / removed content — color only the prefix marker
-	if (line.startsWith('+')) return {prefixColor: 'green'};
-	if (line.startsWith('-')) return {prefixColor: 'red'};
-
-	// Context line - default
-	return {};
+	return {styleFor, isCursor};
 }
 
 // Session-meta derivations for the status row.
@@ -267,10 +294,11 @@ export default function App({
 			viewportLineBudget,
 		});
 
-	const {colorFor, isCursor} = useCharacterStyling({
+	const {styleFor, isCursor} = useCharacterStyling({
 		text,
 		keystrokes,
 		typeableIndices,
+		chunks,
 		cursorPos,
 	});
 
@@ -301,28 +329,24 @@ export default function App({
 			{lineRows.slice(chunkStartLine, chunkEndLine).map(({line, start}, i) => {
 				const lineIndex = chunkStartLine + i;
 				const lineInFocus = isInFocus(start);
-				const containingChunk = chunks.find(
-					chunk => chunk.start <= start && start < chunk.end,
-				);
-				const diffStyle =
-					containingChunk?.kind === 'diff-hunk' ? diffLineStyle(line) : {};
 
 				return (
-					<Text key={lineIndex} dimColor={!lineInFocus || diffStyle.dimColor}>
-						{[...line].map((char, col) => (
-							<Text
-								// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
-								key={col}
-								color={
-									col === 0 && diffStyle.prefixColor
-										? diffStyle.prefixColor
-										: colorFor(start + col)
-								}
-								inverse={isCursor(start + col)}
-							>
-								{char}
-							</Text>
-						))}
+					<Text key={lineIndex}>
+						{[...line].map((char, col) => {
+							const pos = start + col;
+							const {color, dimColor} = styleFor(pos);
+							return (
+								<Text
+									// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
+									key={col}
+									color={color}
+									dimColor={!lineInFocus || dimColor}
+									inverse={isCursor(pos)}
+								>
+									{char}
+								</Text>
+							);
+						})}
 						{isCursor(start + line.length) && <Text inverse>↵ENTER</Text>}
 					</Text>
 				);

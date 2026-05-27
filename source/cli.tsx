@@ -17,13 +17,22 @@ import {
 const cli = meow(
 	`
 	Usage
-	  $ ttype
+	  $ ttype [file]
+
+	Options
+	  --diff   Force diff rendering (auto for .diff/.patch files)
+	  --split  Two-column diff view (+ left / typed, - right / reference); implies --diff
 
 	Examples
-	  $ ttype
+	  $ ttype path/to/essay.txt
+	  $ git show HEAD | ttype --split
 `,
 	{
 		importMeta: import.meta,
+		flags: {
+			diff: {type: 'boolean'},
+			split: {type: 'boolean'},
+		},
 	},
 );
 const path = cli.input[0];
@@ -82,9 +91,11 @@ function readAllStdinSync(): string {
 
 function selectChunker(
 	path: string | undefined,
-	flags: {diff?: boolean},
+	flags: {diff?: boolean; split?: boolean},
 ): Chunker {
-	if (flags.diff) return diffChunker;
+	// --split is inherently a diff view, so it implies diff chunking — that's
+	// what produces the diff-* spans the split layout classifies lines from.
+	if (flags.diff === true || flags.split === true) return diffChunker;
 	if (path && ['.diff', '.patch'].some(ext => path.endsWith(ext))) {
 		return diffChunker;
 	}
@@ -109,6 +120,11 @@ const interactiveStdin = process.stdin.isTTY
 const viewportLineBudget = process.stdout.rows;
 
 render(
-	<App text={text} chunker={chunker} viewportLineBudget={viewportLineBudget} />,
+	<App
+		text={text}
+		chunker={chunker}
+		viewportLineBudget={viewportLineBudget}
+		isSplit={cli.flags.split ?? false}
+	/>,
 	{stdin: interactiveStdin},
 );

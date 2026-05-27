@@ -22,11 +22,11 @@ test('splitDiffRows: context and metadata span the full width', t => {
 	]);
 });
 
-test('splitDiffRows: a change block pairs removed (left) with added (right)', t => {
+test('splitDiffRows: a change block pairs a removed line with an added line', t => {
 	const removed = line('removed', 'old');
 	const added = line('added', 'new');
 	t.deepEqual(splitDiffRows([removed, added]), [
-		{kind: 'split', left: removed, right: added},
+		{kind: 'split', removed, added},
 	]);
 });
 
@@ -34,21 +34,21 @@ test('splitDiffRows: an uneven block pads the shorter side with undefined', t =>
 	const r0 = line('removed', 'r0');
 	const a = [line('added', 'a0'), line('added', 'a1'), line('added', 'a2')];
 	t.deepEqual(splitDiffRows([r0, ...a]), [
-		{kind: 'split', left: r0, right: a[0]},
-		{kind: 'split', left: undefined, right: a[1]},
-		{kind: 'split', left: undefined, right: a[2]},
+		{kind: 'split', removed: r0, added: a[0]},
+		{kind: 'split', removed: undefined, added: a[1]},
+		{kind: 'split', removed: undefined, added: a[2]},
 	]);
 });
 
-test('splitDiffRows: a pure addition leaves the left column blank', t => {
+test('splitDiffRows: a pure addition leaves the removed slot empty', t => {
 	const rows = splitDiffRows([line('added', 'x'), line('added', 'y')]);
-	t.true(rows.every(row => row.kind === 'split' && row.left === undefined));
+	t.true(rows.every(row => row.kind === 'split' && row.removed === undefined));
 });
 
-test('splitDiffRows: a pure deletion leaves the right column blank', t => {
+test('splitDiffRows: a pure deletion leaves the added slot empty', t => {
 	const removed = line('removed', 'x');
 	t.deepEqual(splitDiffRows([removed]), [
-		{kind: 'split', left: removed, right: undefined},
+		{kind: 'split', removed, added: undefined},
 	]);
 });
 

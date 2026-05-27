@@ -7,11 +7,13 @@ import {
 	type SpanKind,
 } from './chunker.js';
 import {initialState, matchesExpected, reducer} from './engine.js';
+import {splitDiffRows, type DiffLine, type DiffLineKind} from './layout.js';
 
 type Props = {
 	readonly text: string;
 	readonly chunker: Chunker;
 	readonly viewportLineBudget: number;
+	readonly isSplit: boolean; // Two-column diff view; default is the unified view
 };
 
 // Lines + lookup. lineForPos closes over lineRows.
@@ -108,11 +110,10 @@ function useChunkViewport({
 	return {focusedChunk, chunkStartLine, chunkEndLine, isInFocus};
 }
 
-// How each cosmetic SpanKind renders. The single source of truth that replaces
-// the old prefix-string heuristic: the renderer decorates from the spans the
-// chunker already produced, rather than re-detecting structure from raw line
-// text. Because it's a Record over the SpanKind union, adding a new kind (e.g.
-// markdown inline-code) won't compile until it has a visual here — the compiler
+// How each cosmetic SpanKind renders — the single source of truth for span
+// decoration. The renderer looks up a position's span here, so what's drawn is
+// driven by the spans the chunker emits. Because it's a Record over the SpanKind
+// union, adding a kind won't compile until it has a visual — the compiler
 // enforces that every span a chunker can emit is drawable.
 type SpanVisual = {
 	color?: string;
@@ -198,9 +199,11 @@ function useCharacterStyling({
 		return kind ? spanVisuals[kind] : {color: 'gray'};
 	};
 
+	const spanKindAt = (textPos: number) => positionToSpanKind.get(textPos);
+
 	const isCursor = (textPos: number) => textPos === cursorPos;
 
-	return {styleFor, isCursor};
+	return {styleFor, isCursor, spanKindAt};
 }
 
 // Session-meta derivations for the status row.
@@ -275,6 +278,7 @@ export default function App({
 	text: initialText,
 	chunker,
 	viewportLineBudget,
+	isSplit,
 }: Props) {
 	// Top-level setup — computed once at mount (and on text/chunker change).
 	// chunks feed both the engine init (for typeableIndices) and the viewport.
@@ -306,7 +310,7 @@ export default function App({
 			viewportLineBudget,
 		});
 
-	const {styleFor, isCursor} = useCharacterStyling({
+	const {styleFor, isCursor, spanKindAt} = useCharacterStyling({
 		text,
 		keystrokes,
 		typeableIndices,
@@ -336,34 +340,135 @@ export default function App({
 		}
 	});
 
-	return (
-		<Box flexDirection="column">
-			{lineRows.slice(chunkStartLine, chunkEndLine).map(({line, start}, i) => {
-				const lineIndex = chunkStartLine + i;
-				const lineInFocus = isInFocus(start);
+	const visibleLines = lineRows.slice(chunkStartLine, chunkEndLine);
 
+	// One source line's characters, shared by both views. Each char is its own
+	// <Text> so color/cursor apply per position; focus-dimming folds into dimColor.
+	const renderChars = (line: string, lineStart: number, lineInFocus: boolean) =>
+		[...line].map((char, col) => {
+			const pos = lineStart + col;
+			const {color, backgroundColor, dimColor} = styleFor(pos);
+			return (
+				<Text
+					// eslint-disable-next-line react/no-array-index-key -- per-char list within a stable line; column is the natural identity
+					key={col}
+					color={color}
+					backgroundColor={backgroundColor}
+					dimColor={!lineInFocus || dimColor}
+					inverse={isCursor(pos)}
+				>
+					{char}
+				</Text>
+			);
+		});
+
+	// A typeable line: its characters plus a ↵ marker at the line's terminating
+	// newline. Shown when the cursor sits there (a prompt to press Enter) or when
+	// a wrong key was pressed there (an error) — a newline is whitespace, so
+	// styleFor flags a mistyped one with a red background, just like a space. A
+	// correctly-typed line break shows nothing. This is the only place the cursor
+	// can land besides a visible char, so it's the only place the marker appears.
+	const renderTypeableLine = (line: string, lineStart: number) => {
+		const newlinePos = lineStart + line.length;
+		const atCursor = isCursor(newlinePos);
+		const {backgroundColor} = styleFor(newlinePos);
+		const showMarker = atCursor || backgroundColor !== undefined;
+		return (
+			<>
+				{renderChars(line, lineStart, isInFocus(lineStart))}
+				{showMarker && (
+					<Text inverse={atCursor} backgroundColor={backgroundColor}>
+						{atCursor ? '↵ENTER' : '↵'}
+					</Text>
+				)}
+			</>
+		);
+	};
+
+	// Default view: one source line per row, top to bottom.
+	const renderUnifiedView = () =>
+		visibleLines.map(({line, start}) => (
+			<Text key={start}>{renderTypeableLine(line, start)}</Text>
+		));
+
+	// Classify a visible line for the split view from the chunker's span at its
+	// start (not a prefix re-sniff). Non-diff lines fall back to full-width.
+	const classifyLine = (lineStart: number): DiffLineKind => {
+		switch (spanKindAt(lineStart)) {
+			case 'diff-remove': {
+				return 'removed';
+			}
+
+			case 'diff-add': {
+				return 'added';
+			}
+
+			case 'diff-context': {
+				return 'context';
+			}
+
+			case 'diff-header':
+			case 'diff-metadata': {
+				return 'meta';
+			}
+
+			default: {
+				return 'context';
+			}
+		}
+	};
+
+	// Split view. The typeable side (added `+`) goes on the LEFT so it stays in
+	// the same column as full-width rows and non-split chunks — the cursor never
+	// hops sideways. Removed lines are dim reference on the right and truncate
+	// (you don't type them); the added column wraps so its content is never cut.
+	const renderSplitView = () => {
+		const diffLines: DiffLine[] = visibleLines.map(({line, start}) => ({
+			text: line,
+			start,
+			kind: classifyLine(start),
+		}));
+
+		return splitDiffRows(diffLines).map(row => {
+			if (row.kind === 'full') {
 				return (
-					<Text key={lineIndex}>
-						{[...line].map((char, col) => {
-							const pos = start + col;
-							const {color, backgroundColor, dimColor} = styleFor(pos);
-							return (
-								<Text
-									// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
-									key={col}
-									color={color}
-									backgroundColor={backgroundColor}
-									dimColor={!lineInFocus || dimColor}
-									inverse={isCursor(pos)}
-								>
-									{char}
-								</Text>
-							);
-						})}
-						{isCursor(start + line.length) && <Text inverse>↵ENTER</Text>}
+					<Text key={row.line.start}>
+						{renderTypeableLine(row.line.text, row.line.start)}
 					</Text>
 				);
-			})}
+			}
+
+			const {added, removed} = row;
+			// A split row always has at least one side (splitDiffRows pads, never
+			// emits an empty row), so the present line's start is a stable key.
+			return (
+				<Box key={(added ?? removed)!.start} flexDirection="row">
+					{/* Typed column gets the larger share — it's the protagonist and
+					    suffers the most from half-width wrapping; reference can truncate. */}
+					<Box width="65%">
+						<Text>
+							{added ? renderTypeableLine(added.text, added.start) : ' '}
+						</Text>
+					</Box>
+					<Box width="35%">
+						<Text wrap="truncate">
+							{removed
+								? renderChars(
+										removed.text,
+										removed.start,
+										isInFocus(removed.start),
+								  )
+								: ' '}
+						</Text>
+					</Box>
+				</Box>
+			);
+		});
+	};
+
+	return (
+		<Box flexDirection="column">
+			{isSplit ? renderSplitView() : renderUnifiedView()}
 			<Box
 				borderTop
 				borderStyle="single"

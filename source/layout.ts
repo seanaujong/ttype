@@ -1,12 +1,14 @@
 // Pure layout for the two-column "split" diff view. Given a diff hunk's lines —
 // each already classified by the chunker's spans — produce the rows the renderer
 // draws: context and metadata span the full width; a change block (a run of
-// removed lines followed by a run of added lines) becomes paired left/right rows,
-// blank-padded to the taller side.
+// removed lines followed by a run of added lines) becomes paired rows, blank-
+// padded to the taller side.
 //
-// No Ink and no engine here: a pure function so the fiddly alignment can be
-// unit-tested without a terminal. 2-D arrangement is a renderer concern, which is
-// why this is layout, not chunking (see docs/rendering.md).
+// The pairing is semantic (`removed` with `added`); which screen *column* each
+// lands in is the renderer's call, not ours. No Ink and no engine here: a pure
+// function so the fiddly alignment can be unit-tested without a terminal. 2-D
+// arrangement is a renderer concern, which is why this is layout, not chunking
+// (see docs/rendering.md).
 
 export type DiffLineKind = 'removed' | 'added' | 'context' | 'meta';
 
@@ -17,14 +19,15 @@ export type DiffLine = Readonly<{
 }>;
 
 // A row to render. `full` spans both columns (context / @@ / metadata). `split`
-// places a removed line on the left and an added line on the right; either slot
-// may be undefined (a pure addition or pure deletion leaves one side blank).
+// pairs a removed line with an added line; either slot may be undefined (a pure
+// addition or pure deletion leaves one side blank). The renderer decides which
+// column `removed` vs `added` is drawn in.
 export type SplitRow =
 	| Readonly<{kind: 'full'; line: DiffLine}>
 	| Readonly<{
 			kind: 'split';
-			left: DiffLine | undefined;
-			right: DiffLine | undefined;
+			removed: DiffLine | undefined;
+			added: DiffLine | undefined;
 	  }>;
 
 export function splitDiffRows(lines: readonly DiffLine[]): SplitRow[] {
@@ -58,7 +61,7 @@ export function splitDiffRows(lines: readonly DiffLine[]): SplitRow[] {
 		// Pair them row by row; the shorter side gets undefined (blank) padding.
 		const height = Math.max(removed.length, added.length);
 		for (let k = 0; k < height; k++) {
-			rows.push({kind: 'split', left: removed[k], right: added[k]});
+			rows.push({kind: 'split', removed: removed[k], added: added[k]});
 		}
 	}
 

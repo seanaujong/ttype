@@ -273,7 +273,7 @@ export const markdownChunker: Chunker = text => {
 // block-quote `>`. Markers are cosmetic; content stays
 // typeable. Italics use the underscore form only — single-asterisk italic
 // would need lookarounds to avoid matching inside `**bold**`, not worth it
-// for v1 since we mostly use `_…_` in our own docs.
+// since we mostly use `_…_` in our own docs.
 function computeProseSpans(
 	text: string,
 	chunkStart: number,

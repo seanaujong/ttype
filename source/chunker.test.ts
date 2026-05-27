@@ -1,9 +1,10 @@
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
 import {
 	blankLineChunker,
 	computeTypeableIndices,
 	diffChunker,
 	markdownChunker,
+	typeableIndicesFromChunk,
 } from './chunker.js';
 
 test('blankLineChunker: text without blank lines is one chunk', t => {
@@ -246,6 +247,89 @@ test('computeTypeableIndices skips unmappable typographic chars (ellipsis)', t =
 	// 'a…b' — the ellipsis has no 1:1 ASCII keystroke, so it's skipped.
 	// Positions: a=0, …=1, b=2. Typeable: a, b.
 	t.deepEqual(computeTypeableIndices('a…b'), [0, 2]);
+});
+
+// TypeableIndicesFromChunk — chunk skipping is range selection, so it's just a
+// filter over the typeable set. Tested in isolation with synthetic chunks.
+
+test('typeableIndicesFromChunk: startChunkIdx 0 returns the same set (no copy)', t => {
+	const chunks = [
+		{start: 0, end: 5},
+		{start: 6, end: 10},
+	];
+	const indices = [0, 1, 2, 6, 7, 8];
+	t.is(typeableIndicesFromChunk(indices, chunks, 0), indices);
+});
+
+test('typeableIndicesFromChunk: a later start chunk drops earlier positions', t => {
+	const chunks = [
+		{start: 0, end: 5},
+		{start: 6, end: 10},
+	];
+	const indices = [0, 1, 2, 6, 7, 8];
+	// Scope to chunk index 1 (start 6): keep only positions at or after it.
+	t.deepEqual(typeableIndicesFromChunk(indices, chunks, 1), [6, 7, 8]);
+});
+
+test('typeableIndicesFromChunk: out-of-range index clamps to the last chunk', t => {
+	const chunks = [
+		{start: 0, end: 5},
+		{start: 6, end: 10},
+	];
+	const indices = [0, 1, 2, 6, 7, 8];
+	t.deepEqual(typeableIndicesFromChunk(indices, chunks, 99), [6, 7, 8]);
+});
+
+test('typeableIndicesFromChunk: no chunks returns the set unchanged', t => {
+	const indices = [0, 1, 2];
+	t.is(typeableIndicesFromChunk(indices, [], 2), indices);
+});
+
+test('typeableIndicesFromChunk: scoping past a chunk excludes its content', t => {
+	const text = 'first para\n\nsecond para';
+	const chunks = blankLineChunker(text);
+	const all = computeTypeableIndices(text, chunks);
+	const scoped = typeableIndicesFromChunk(all, chunks, 1);
+	// Chunks[1] = 'second para'; nothing before its start survives.
+	t.true(scoped.every(pos => pos >= chunks[1]!.start));
+	t.true(scoped.length < all.length);
+	// 'first' drops out of the typeable set; 'second' stays in it.
+	t.false(scoped.includes(text.indexOf('first')));
+	t.true(scoped.includes(text.indexOf('second')));
+});
+
+// Diff typeable-contract invariant: you type the *content* of a changed line,
+// never its indentation — regardless of whether the diff is tab- or space-
+// indented. (Space indentation used to leak in: the '+' marker sits at column 0,
+// so the indentation after it isn't "leading" whitespace the generic skip drops.)
+function assertIndentationNotTypeable(t: ExecutionContext, diff: string) {
+	const idx = computeTypeableIndices(diff, diffChunker(diff));
+	const markerPos = diff.indexOf('\n') + 1; // The added line's '+' marker
+	const contentStart = diff.indexOf('const');
+	for (let p = markerPos; p < contentStart; p++) {
+		t.false(idx.includes(p), `indentation position ${p} must not be typeable`);
+	}
+
+	t.true(idx.includes(contentStart), 'content must be typeable');
+}
+
+test('diff added line: tab indentation is not typeable', t => {
+	assertIndentationNotTypeable(t, '@@ -1 +1 @@\n+\t\tconst x = 1;');
+});
+
+test('diff added line: space indentation is not typeable', t => {
+	assertIndentationNotTypeable(t, '@@ -1 +1 @@\n+    const x = 1;');
+});
+
+test('diff added line: the content after indentation stays fully typeable', t => {
+	const diff = '@@ -1 +1 @@\n+    const x = 1;';
+	const idx = computeTypeableIndices(diff, diffChunker(diff));
+	const content = 'const x = 1;';
+	const start = diff.indexOf(content);
+	// Every content character (including the inter-word spaces) is typed.
+	for (let i = 0; i < content.length; i++) {
+		t.true(idx.includes(start + i), `content position ${start + i} typeable`);
+	}
 });
 
 test('computeTypeableIndices subtracts cosmetic spans from chunks', t => {

@@ -30,6 +30,56 @@ export type SplitRow =
 			added: DiffLine | undefined;
 	  }>;
 
+// The slice of lines to actually render, given a candidate line range and a row
+// budget. When the range fits the budget, it's returned unchanged. When it's
+// taller — a chunk bigger than the terminal — a budget-sized window slides to
+// follow the cursor, anchored so the focus line sits `lookahead` lines from the
+// bottom. That bottom anchoring is the point: terminals scroll to show their
+// last rows, so keeping the focus line near the window's bottom keeps it visible
+// even when long lines above it wrap (which the source-line budget can't see).
+// Pure and renderer-agnostic, so the scrolling math is unit-testable without Ink.
+export function visibleLineWindow({
+	focusLine,
+	rangeStart,
+	rangeEnd,
+	budget,
+	lookahead,
+}: {
+	readonly focusLine: number;
+	readonly rangeStart: number;
+	readonly rangeEnd: number;
+	readonly budget: number;
+	readonly lookahead: number;
+}): {start: number; end: number} {
+	if (rangeEnd - rangeStart <= budget) {
+		return {start: rangeStart, end: rangeEnd};
+	}
+
+	// Put the focus line `lookahead` rows above the bottom, but never spill past
+	// the range or shrink the window below the budget when there's room to fill it.
+	const end = Math.min(
+		rangeEnd,
+		Math.max(rangeStart + budget, focusLine + lookahead + 1),
+	);
+	return {start: end - budget, end};
+}
+
+// The leftmost column to start rendering at, so the cursor stays visible when a
+// line is wider than the column it's drawn in. The horizontal twin of
+// visibleLineWindow: zero until the cursor would pass the right edge, then it
+// tracks the cursor, holding it `lookahead` columns from the edge so a few
+// characters ahead (and the line's ↵ marker) stay in view. Truncating each line
+// to [offset, offset + width) keeps it on one row — no soft-wrap, so rows stay
+// equal to source lines and the split columns stay aligned.
+export function horizontalOffset(
+	cursorColumn: number,
+	width: number,
+	lookahead: number,
+): number {
+	const rightEdge = Math.max(0, width - 1 - lookahead);
+	return Math.max(0, cursorColumn - rightEdge);
+}
+
 export function splitDiffRows(lines: readonly DiffLine[]): SplitRow[] {
 	const rows: SplitRow[] = [];
 	let i = 0;

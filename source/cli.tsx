@@ -118,12 +118,14 @@ const interactiveStdin = process.stdin.isTTY
 	: new tty.ReadStream(fs.openSync(ttyPath, 'r'));
 
 const viewportLineBudget = process.stdout.rows;
+const viewportColumns = process.stdout.columns ?? 80;
 
 render(
 	<App
 		text={text}
 		chunker={chunker}
 		viewportLineBudget={viewportLineBudget}
+		viewportColumns={viewportColumns}
 		isSplit={cli.flags.split ?? false}
 	/>,
 	{stdin: interactiveStdin},

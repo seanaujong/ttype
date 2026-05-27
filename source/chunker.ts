@@ -117,8 +117,16 @@ function computeSpans(
 			// they share a prefix char.
 			spans.push({start: pos, end: wholeLineEnd, style: 'diff-metadata'});
 		} else if (line.startsWith('+')) {
-			// Added content: just the leading marker is cosmetic; user types the rest.
-			spans.push({start: pos, end: pos + 1, style: 'diff-add'});
+			// Added content: the '+' marker AND the line's own indentation are
+			// cosmetic — you type the content, not the leading whitespace. Covering
+			// the indentation here is what keeps it out of the typeable set; the
+			// generic leading-whitespace skip can't, because the '+' is a non-space
+			// char at column 0, so the indentation after it isn't "leading." (Without
+			// this, a space-indented diff would make you type the indentation; tabs
+			// were only spared by the mid-line-tab skip.)
+			const afterIndent = line.slice(1).search(/[^ \t]/);
+			const markerEnd = afterIndent === -1 ? line.length : 1 + afterIndent;
+			spans.push({start: pos, end: pos + markerEnd, style: 'diff-add'});
 		} else if (line.startsWith('-')) {
 			// Removed content: the entire line is cosmetic. Typing through a diff
 			// practices the *new* file; old text isn't part of the result.
@@ -383,6 +391,24 @@ function computeProseSpans(
 	}
 
 	return spans;
+}
+
+// Narrow a typeable-index set to "this chunk onward": drop every position before
+// chunks[startChunkIdx].start. This is what chunk-skipping is — selecting a later
+// start chunk re-scopes what's typeable (and so what WPM/accuracy count over),
+// rather than feeding a "skip" event into the engine fold. The engine just
+// re-inits over the narrower set. startChunkIdx 0 (or no chunks) returns the set
+// unchanged; an out-of-range index clamps to the last chunk, so a runaway skip
+// counter still resolves to a valid scope.
+export function typeableIndicesFromChunk(
+	typeableIndices: readonly number[],
+	chunks: readonly Chunk[],
+	startChunkIdx: number,
+): readonly number[] {
+	if (startChunkIdx <= 0 || chunks.length === 0) return typeableIndices;
+	const idx = Math.min(startChunkIdx, chunks.length - 1);
+	const startPos = chunks[idx]!.start;
+	return typeableIndices.filter(pos => pos >= startPos);
 }
 
 export function computeTypeableIndices(

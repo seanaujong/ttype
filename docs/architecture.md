@@ -129,6 +129,19 @@ Three rules, in priority order:
 
 If a refactor proposal would break any of those rules, it's the proposal that's wrong, not the rules.
 
+## Canonical text vs. display
+
+There are two notions of "the text," usually the same string, and the architecture keeps them that way on purpose:
+
+- **Text-as-typed** — the engine's source of truth. `computeTypeableIndices(text, chunks)` derives what you type from it; the fold replays over it.
+- **Text-as-displayed** — what the renderer draws.
+
+The renderer may transform text _for display_ — collapsing a tab to a space, truncating a long line, scrolling it horizontally — but it must **never feed a transformed text back into the engine or `computeTypeableIndices`.** The canonical `text` is what you type; display is a read-only view of it.
+
+We learned this the hard way. Expanding tabs → spaces _at the input boundary_, to make rendering width predictable, looked like a clean adapter normalization — but it changed the engine's input. In a diff the indentation sits _after_ the `+`/`-` marker, so it isn't "leading" whitespace; only the mid-line-tab skip was keeping it out of the typeable set. Expanding to spaces made all of it typeable — you'd be typing the indentation. The fix was to move the tab→space swap into the renderer (display-only) and leave `computeTypeableIndices` untouched.
+
+The tell that this boundary is being crossed: **a "display" change that moves the typeable-index count.** `computeTypeableIndices(text).length` is a cheap oracle — if a rendering tweak changes it, the tweak is in the wrong layer. (A regression test guards the specific case: a diff's indentation is never typeable, tab- or space-indented.)
+
 ## When the diagram changes
 
 This doc is current as of the spans / cosmetic-region refactor. Things that would update the diagram:

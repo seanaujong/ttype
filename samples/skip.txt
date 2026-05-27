@@ -1,0 +1,23 @@
+This is the first chunk. Type a few words here, then press Tab. The run
+resets and jumps to the next chunk: skipping is range selection, not a
+keystroke, so nothing you typed here counts once you move on.
+
+This is the second chunk. Look at the status line — it now reads
+"chunk 2 / 6", and the keystroke total dropped, because the first chunk
+left the typeable set. Press Shift+Tab to come back, or Tab to keep going.
+
+This is the third chunk. The "skip chunk" hint only shows before you start
+typing, since a skip always resets the run. Once you press a key it steps
+out of the way so it never clutters a live race.
+
+The fourth chunk is here to give Tab somewhere to land. Each blank line
+between paragraphs is a chunk boundary, so the default chunker turns this
+plain-text file into one chunk per paragraph — six in all.
+
+Fifth chunk. Try skipping straight to the last chunk and typing only that —
+a handy way to drill the one passage you keep fumbling, without retyping the
+whole document every run.
+
+Last chunk, the sixth. Tab here does nothing: the start clamps to the final
+chunk, just as Shift+Tab clamps back to the first. That is the whole feature
+— type, skip, repeat.

@@ -1,19 +1,65 @@
 import {Box, Text, useInput} from 'ink';
-import React, {useMemo, useReducer} from 'react';
+import React, {useMemo, useReducer, useState} from 'react';
 import {
 	computeTypeableIndices,
+	typeableIndicesFromChunk,
 	type Chunk,
 	type Chunker,
 	type SpanKind,
 } from './chunker.js';
 import {initialState, matchesExpected, reducer} from './engine.js';
-import {splitDiffRows, type DiffLine, type DiffLineKind} from './layout.js';
+import {
+	horizontalOffset,
+	splitDiffRows,
+	visibleLineWindow,
+	type DiffLine,
+	type DiffLineKind,
+} from './layout.js';
+
+// Lines kept below the cursor when a chunk is taller than the viewport, so you
+// can read a little ahead. Small on purpose: anything below the cursor wraps
+// downward in --split, and we want the cursor itself to stay on screen.
+const cursorLookahead = 3;
+
+// Columns kept to the right of the cursor when a line is wider than its column —
+// enough read-ahead, and room for the ↵ marker (≥ "↵ENTER".length) so it never
+// pushes the row past the edge and forces a wrap.
+const cursorColumnLookahead = 8;
+
+// Fraction of the width the typed (`+`) column gets in --split; the reference
+// (`-`) column takes the rest. The typed side is the protagonist, so it's wider.
+const splitTypedFraction = 0.65;
+
+// Width reserved for the ↵ marker ("↵ENTER") so a full-width line plus the
+// marker still fits on one row.
+const newlineMarkerWidth = 6;
+
+// Rows the status footer occupies (a 1-row top border + 1 row of text). Reserved
+// out of the line budget so content + footer never exceeds the terminal height —
+// an overflowing frame can't be cleared by Ink, which then stacks each new frame
+// below the last (a "trail" of the cursor line).
+const statusFooterRows = 2;
 
 type Props = {
 	readonly text: string;
 	readonly chunker: Chunker;
 	readonly viewportLineBudget: number;
+	readonly viewportColumns: number; // Terminal width, for horizontal scrolling
 	readonly isSplit: boolean; // Two-column diff view; default is the unified view
+};
+
+// What Racer needs once App has done the source-level work (chunking, scoping).
+// typeableIndices is already scoped to the start chunk; onSkip* ask App to move
+// that start, which remounts Racer (see the App/Racer split below).
+type RacerProps = {
+	readonly text: string;
+	readonly chunks: Chunk[];
+	readonly typeableIndices: readonly number[];
+	readonly viewportLineBudget: number;
+	readonly viewportColumns: number;
+	readonly isSplit: boolean;
+	readonly onSkipForward: () => void;
+	readonly onSkipBack: () => void;
 };
 
 // Lines + lookup. lineForPos closes over lineRows.
@@ -94,12 +140,23 @@ function useChunkViewport({
 	const firstVisibleChunk = chunks[firstChunkIdx];
 	const lastVisibleChunk = chunks[lastChunkIdx];
 
-	const chunkStartLine = firstVisibleChunk
+	const rangeStartLine = firstVisibleChunk
 		? lineForPos(firstVisibleChunk.start)
 		: 0;
-	const chunkEndLine = lastVisibleChunk
+	const rangeEndLine = lastVisibleChunk
 		? lineForPos(lastVisibleChunk.end - 1) + 1
 		: lineRows.length;
+
+	// The expansion above fills the budget with whole chunks, but a single chunk
+	// can still be taller than the viewport. Clamp to a budget-sized window that
+	// follows the cursor so the line being typed never scrolls off-screen.
+	const {start: visibleStartLine, end: visibleEndLine} = visibleLineWindow({
+		focusLine: lineForPos(focusPos),
+		rangeStart: rangeStartLine,
+		rangeEnd: rangeEndLine,
+		budget: viewportLineBudget,
+		lookahead: cursorLookahead,
+	});
 
 	// True if this text position is inside the focused chunk (for dimming logic).
 	const isInFocus = (pos: number) =>
@@ -107,7 +164,7 @@ function useChunkViewport({
 		pos >= focusedChunk.start &&
 		pos < focusedChunk.end;
 
-	return {focusedChunk, chunkStartLine, chunkEndLine, isInFocus};
+	return {focusedChunk, visibleStartLine, visibleEndLine, isInFocus};
 }
 
 // How each cosmetic SpanKind renders — the single source of truth for span
@@ -274,22 +331,23 @@ function useStats({
 	return {progress, liveWpm, accuracy, chunkPos};
 }
 
-export default function App({
+// The typing session over one scope (start chunk → end of text). App owns the
+// scope; Racer owns everything downstream of it — the engine fold, the viewport,
+// the styling, the render. App remounts Racer (via a changing `key`) whenever the
+// scope changes, so the lazy initializer below re-runs and the engine starts
+// fresh over the new typeableIndices. That remount IS the "reset on skip".
+function Racer({
 	text: initialText,
-	chunker,
+	chunks,
+	typeableIndices,
 	viewportLineBudget,
+	viewportColumns,
 	isSplit,
-}: Props) {
-	// Top-level setup — computed once at mount (and on text/chunker change).
-	// chunks feed both the engine init (for typeableIndices) and the viewport.
-	const chunks = useMemo(() => chunker(initialText), [initialText, chunker]);
-	const typeableIndices = useMemo(
-		() => computeTypeableIndices(initialText, chunks),
-		[initialText, chunks],
-	);
-
-	// UseReducer's three-arg form: lazy initializer runs once with the typeable
-	// indices we computed above. Two-arg form can't see local derivations.
+	onSkipForward,
+	onSkipBack,
+}: RacerProps) {
+	// UseReducer's three-arg form: lazy initializer runs once per mount with the
+	// (already scoped) typeable indices App passed in. Two-arg form can't see props.
 	const [state, dispatch] = useReducer(reducer, undefined, () =>
 		initialState(initialText, typeableIndices),
 	);
@@ -301,13 +359,16 @@ export default function App({
 
 	const {lineRows, lineForPos} = useLineLayout(text);
 
-	const {focusedChunk, chunkStartLine, chunkEndLine, isInFocus} =
+	// Reserve the footer's rows so the content window plus footer fits the terminal.
+	const contentLineBudget = Math.max(1, viewportLineBudget - statusFooterRows);
+
+	const {focusedChunk, visibleStartLine, visibleEndLine, isInFocus} =
 		useChunkViewport({
 			chunks,
 			focusPos,
 			lineRows,
 			lineForPos,
-			viewportLineBudget,
+			viewportLineBudget: contentLineBudget,
 		});
 
 	const {styleFor, isCursor, spanKindAt} = useCharacterStyling({
@@ -329,7 +390,18 @@ export default function App({
 	});
 
 	useInput((input, key) => {
-		if (key.backspace || key.delete) {
+		// Skip is scope selection, not typing — it asks App to move the start chunk
+		// (which remounts us and resets the run), so it returns before the engine
+		// fold sees anything. Shift+Tab and Tab both arrive as key.tab; the shift
+		// flag disambiguates. Tab carries no `input`, so it can't fall through to
+		// TYPE_CHAR below.
+		if (key.tab) {
+			if (key.shift) {
+				onSkipBack();
+			} else {
+				onSkipForward();
+			}
+		} else if (key.backspace || key.delete) {
 			dispatch({kind: 'BACKSPACE'});
 		} else if (key.escape) {
 			dispatch({kind: 'RESET'});
@@ -340,42 +412,97 @@ export default function App({
 		}
 	});
 
-	const visibleLines = lineRows.slice(chunkStartLine, chunkEndLine);
+	const visibleLines = lineRows.slice(visibleStartLine, visibleEndLine);
+
+	// Reserve the terminal's last column. A row that fills the final cell makes
+	// the terminal auto-wrap it onto a second line, which inflates height and
+	// re-triggers the frame-stacking overflow. Keeping everything (content rows
+	// *and* the footer border) within `usableColumns` leaves that cell empty.
+	const usableColumns = Math.max(1, viewportColumns - 1);
+
+	// Horizontal scrolling. Rather than soft-wrap a line wider than its column
+	// (which inflates height and desyncs the split columns), each line renders on
+	// one row, truncated to a window that follows the cursor. The typed column is
+	// the full width in the unified view, a fraction of it in --split; colOffset
+	// tracks the cursor against whichever column it currently sits in.
+	const typedColumnWidth = isSplit
+		? Math.floor(usableColumns * splitTypedFraction)
+		: usableColumns;
+	const referenceColumnWidth = usableColumns - typedColumnWidth;
+	const cursorLineStart = lineRows[lineForPos(focusPos)]?.start ?? 0;
+	const cursorColumn = focusPos - cursorLineStart;
+	const cursorInAddedColumn =
+		isSplit && spanKindAt(cursorLineStart) === 'diff-add';
+	const colOffset = horizontalOffset(
+		cursorColumn,
+		cursorInAddedColumn ? typedColumnWidth : usableColumns,
+		cursorColumnLookahead,
+	);
 
 	// One source line's characters, shared by both views. Each char is its own
 	// <Text> so color/cursor apply per position; focus-dimming folds into dimColor.
-	const renderChars = (line: string, lineStart: number, lineInFocus: boolean) =>
-		[...line].map((char, col) => {
+	// Only the [offset, offset + width) slice is drawn — the rest is scrolled off.
+	const renderChars = (
+		line: string,
+		lineStart: number,
+		offset: number,
+		width: number,
+		lineInFocus: boolean,
+	) =>
+		[...line].slice(offset, offset + width).map((char, i) => {
+			const col = offset + i;
 			const pos = lineStart + col;
 			const {color, backgroundColor, dimColor} = styleFor(pos);
 			return (
 				<Text
-					// eslint-disable-next-line react/no-array-index-key -- per-char list within a stable line; column is the natural identity
 					key={col}
 					color={color}
 					backgroundColor={backgroundColor}
 					dimColor={!lineInFocus || dimColor}
 					inverse={isCursor(pos)}
 				>
-					{char}
+					{/* A tab renders at a variable, terminal-dependent width that
+					    `string-width` counts as one column, so it slips past the row's
+					    width budget and overflows. Render it as a space — display only, so
+					    the typeable set is untouched (the engine still skips tabs, so you
+					    never type the indentation), and one source char stays one column,
+					    keeping the slice/cursor math exact. One space (not the editor's
+					    wider tab stop) is what preserves that one-char-one-column mapping. */}
+					{char === '\t' ? ' ' : char}
 				</Text>
 			);
 		});
 
-	// A typeable line: its characters plus a ↵ marker at the line's terminating
-	// newline. Shown when the cursor sits there (a prompt to press Enter) or when
-	// a wrong key was pressed there (an error) — a newline is whitespace, so
-	// styleFor flags a mistyped one with a red background, just like a space. A
-	// correctly-typed line break shows nothing. This is the only place the cursor
-	// can land besides a visible char, so it's the only place the marker appears.
-	const renderTypeableLine = (line: string, lineStart: number) => {
+	// A typeable line: its visible characters plus a ↵ marker at the line's
+	// terminating newline. Shown when the cursor sits there (a prompt to press
+	// Enter) or when a wrong key was pressed there (an error) — a newline is
+	// whitespace, so styleFor flags a mistyped one with a red background, just like
+	// a space. A correctly-typed line break shows nothing. This is the only place
+	// the cursor can land besides a visible char, so it's the only place the marker
+	// appears. When it shows, the content reserves room for it so the row never
+	// overflows its width (which would force the wrap we're avoiding).
+	const renderTypeableLine = (
+		line: string,
+		lineStart: number,
+		offset: number,
+		width: number,
+	) => {
 		const newlinePos = lineStart + line.length;
 		const atCursor = isCursor(newlinePos);
 		const {backgroundColor} = styleFor(newlinePos);
 		const showMarker = atCursor || backgroundColor !== undefined;
+		const contentWidth = showMarker
+			? Math.max(0, width - newlineMarkerWidth)
+			: width;
 		return (
 			<>
-				{renderChars(line, lineStart, isInFocus(lineStart))}
+				{renderChars(
+					line,
+					lineStart,
+					offset,
+					contentWidth,
+					isInFocus(lineStart),
+				)}
 				{showMarker && (
 					<Text inverse={atCursor} backgroundColor={backgroundColor}>
 						{atCursor ? '↵ENTER' : '↵'}
@@ -385,10 +512,13 @@ export default function App({
 		);
 	};
 
-	// Default view: one source line per row, top to bottom.
+	// Default view: one source line per row, top to bottom. wrap="truncate" is a
+	// belt-and-suspenders guard — renderTypeableLine already slices to width.
 	const renderUnifiedView = () =>
 		visibleLines.map(({line, start}) => (
-			<Text key={start}>{renderTypeableLine(line, start)}</Text>
+			<Text key={start} wrap="truncate">
+				{renderTypeableLine(line, start, colOffset, usableColumns)}
+			</Text>
 		));
 
 	// Classify a visible line for the split view from the chunker's span at its
@@ -420,8 +550,10 @@ export default function App({
 
 	// Split view. The typeable side (added `+`) goes on the LEFT so it stays in
 	// the same column as full-width rows and non-split chunks — the cursor never
-	// hops sideways. Removed lines are dim reference on the right and truncate
-	// (you don't type them); the added column wraps so its content is never cut.
+	// hops sideways. Both sides truncate to their column (no wrap), so each diff
+	// row is exactly one terminal row and the columns stay aligned. The typed
+	// column scrolls with the cursor; the reference column shows from its start
+	// (you don't type it, so there's no cursor to follow).
 	const renderSplitView = () => {
 		const diffLines: DiffLine[] = visibleLines.map(({line, start}) => ({
 			text: line,
@@ -432,8 +564,13 @@ export default function App({
 		return splitDiffRows(diffLines).map(row => {
 			if (row.kind === 'full') {
 				return (
-					<Text key={row.line.start}>
-						{renderTypeableLine(row.line.text, row.line.start)}
+					<Text key={row.line.start} wrap="truncate">
+						{renderTypeableLine(
+							row.line.text,
+							row.line.start,
+							colOffset,
+							usableColumns,
+						)}
 					</Text>
 				);
 			}
@@ -444,21 +581,27 @@ export default function App({
 			return (
 				<Box key={(added ?? removed)!.start} flexDirection="row">
 					{/* Typed column gets the larger share — it's the protagonist and
-					    suffers the most from half-width wrapping; reference can truncate. */}
-					<Box width="65%">
-						<Text>
-							{added ? renderTypeableLine(added.text, added.start) : ' '}
-						</Text>
-					</Box>
-					<Box width="35%">
+					    suffers the most from a half-width column; reference truncates. */}
+					<Box width={typedColumnWidth}>
 						<Text wrap="truncate">
-							{removed
-								? renderChars(
-										removed.text,
-										removed.start,
-										isInFocus(removed.start),
+							{added
+								? renderTypeableLine(
+										added.text,
+										added.start,
+										colOffset,
+										typedColumnWidth,
 								  )
 								: ' '}
+						</Text>
+					</Box>
+					{/* Reference is display-only (uniformly dim red, never the cursor), so
+					    it's one truncating <Text> rather than per-char — Ink adds the `…`.
+					    Tabs are swapped to spaces here too: `string-width` treats a tab as
+					    one column, so without this the truncation undercounts and the line
+					    overflows the column (the split-view overflow you saw). */}
+					<Box width={referenceColumnWidth}>
+						<Text dimColor color="red" wrap="truncate">
+							{removed ? removed.text.replace(/\t/g, ' ') : ' '}
 						</Text>
 					</Box>
 				</Box>
@@ -466,8 +609,16 @@ export default function App({
 		});
 	};
 
+	// Only hint at the keys while there's somewhere to skip to and the run hasn't
+	// begun — skipping resets, so it's a before-you-start move. It then steps out
+	// of the way once typing is underway.
+	const showSkipHint = keystrokes.length === 0 && chunks.length > 1;
+
 	return (
-		<Box flexDirection="column">
+		// Width={usableColumns} keeps the whole frame — including the full-width
+		// footer border — one column short of the terminal, so nothing lands in the
+		// last cell and auto-wraps.
+		<Box flexDirection="column" width={usableColumns}>
 			{isSplit ? renderSplitView() : renderUnifiedView()}
 			<Box
 				borderTop
@@ -479,8 +630,65 @@ export default function App({
 				<Text dimColor>
 					{chunkPos && `${chunkPos}  ·  `}
 					{progress} keystrokes · {liveWpm} WPM · {accuracy}% accuracy
+					{showSkipHint && '  ·  ⇥/⇧⇥ skip chunk'}
 				</Text>
 			</Box>
 		</Box>
+	);
+}
+
+export default function App({
+	text,
+	chunker,
+	viewportLineBudget,
+	viewportColumns,
+	isSplit,
+}: Props) {
+	// Source-level work, done once (text/chunker are stable for a session): split
+	// into chunks, then derive every typeable position over the whole text.
+	const chunks = useMemo(() => chunker(text), [text, chunker]);
+	const allTypeableIndices = useMemo(
+		() => computeTypeableIndices(text, chunks),
+		[text, chunks],
+	);
+
+	// The scope: which chunk the run starts on. Tab/Shift+Tab move it; the run
+	// always covers that chunk through end-of-text. useState gives us a value that
+	// survives re-renders and, when set, triggers one — unlike a plain variable.
+	const [startChunkIdx, setStartChunkIdx] = useState(0);
+
+	// Clamp into a real chunk so the counter can't run off either end (and a
+	// pointless re-render is avoided when already at the edge).
+	const skipForward = () => {
+		setStartChunkIdx(idx => Math.min(idx + 1, chunks.length - 1));
+	};
+
+	const skipBack = () => {
+		setStartChunkIdx(idx => Math.max(idx - 1, 0));
+	};
+
+	// Re-scoped to the start chunk; Racer types over exactly this set.
+	const typeableIndices = useMemo(
+		() => typeableIndicesFromChunk(allTypeableIndices, chunks, startChunkIdx),
+		[allTypeableIndices, chunks, startChunkIdx],
+	);
+
+	// Key={startChunkIdx}: changing the key tells React this is a *different*
+	// Racer, so it unmounts the old one and mounts a fresh instance — the engine's
+	// lazy initializer re-runs over the new scope, clearing keystrokes and timing.
+	// This is the idiomatic React way to reset all of a child's state on identity
+	// change, and it keeps the engine itself free of any "rescope" action.
+	return (
+		<Racer
+			key={startChunkIdx}
+			text={text}
+			chunks={chunks}
+			typeableIndices={typeableIndices}
+			viewportLineBudget={viewportLineBudget}
+			viewportColumns={viewportColumns}
+			isSplit={isSplit}
+			onSkipForward={skipForward}
+			onSkipBack={skipBack}
+		/>
 	);
 }

@@ -166,6 +166,58 @@ test('markdownChunker: inline code backticks cosmetic; content typeable', t => {
 	}
 });
 
+test('markdownChunker: list markers cosmetic; item text typeable', t => {
+	const text = '- first item\n- second item';
+	const chunks = markdownChunker(text);
+	const markerSpans = chunks[0]!.spans!.filter(
+		s => s.style === 'md-list-marker',
+	);
+	// One span per bullet, each covering '- ' (marker + trailing space).
+	t.is(markerSpans.length, 2);
+	t.true(markerSpans.every(s => s.end - s.start === 2));
+	// Item text is typed; the '-' markers are not.
+	const indices = computeTypeableIndices(text, chunks);
+	t.false(indices.some(i => text[i] === '-'));
+	const firstItem = text.indexOf('first');
+	t.true(indices.includes(firstItem));
+});
+
+test('markdownChunker: ordered list marker cosmetic', t => {
+	const text = '1. do this\n2. then this';
+	const chunks = markdownChunker(text);
+	const markerSpans = chunks[0]!.spans!.filter(
+		s => s.style === 'md-list-marker',
+	);
+	t.is(markerSpans.length, 2);
+	// '1. ' and '2. ' are three chars each.
+	t.true(markerSpans.every(s => s.end - s.start === 3));
+});
+
+test('markdownChunker: bold/rule at line start is not a list marker', t => {
+	// `**bold**` and `---` both start with list-marker chars but lack the
+	// marker-then-space shape, so neither should match.
+	const text = '**bold** lead-in\n---';
+	const chunks = markdownChunker(text);
+	const markerSpans = chunks.flatMap(c =>
+		(c.spans ?? []).filter(s => s.style === 'md-list-marker'),
+	);
+	t.is(markerSpans.length, 0);
+});
+
+test('markdownChunker: block-quote prefix cosmetic; quoted text typeable', t => {
+	const text = '> quoted line\n> more quote';
+	const chunks = markdownChunker(text);
+	const quoteSpans = chunks[0]!.spans!.filter(
+		s => s.style === 'md-quote-prefix',
+	);
+	t.is(quoteSpans.length, 2);
+	t.true(quoteSpans.every(s => s.end - s.start === 2)); // '> '
+	const indices = computeTypeableIndices(text, chunks);
+	t.false(indices.some(i => text[i] === '>'));
+	const quoted = text.indexOf('quoted');
+	t.true(indices.includes(quoted));
+});
+
 test('markdownChunker: fenced code block becomes its own chunk', t => {
 	const text = '```ts\nconst x = 1;\nconst y = 2;\n```';
 	const chunks = markdownChunker(text);

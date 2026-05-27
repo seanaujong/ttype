@@ -20,6 +20,8 @@ export type SpanKind =
 	| 'diff-metadata'
 	| 'diff-context'
 	| 'md-heading-prefix'
+	| 'md-list-marker'
+	| 'md-quote-prefix'
 	| 'md-emphasis-marker'
 	| 'md-link-syntax'
 	| 'md-code-span'
@@ -143,12 +145,12 @@ function computeSpans(
 //   - `heading`   — a single `#…` line; the `#+ ` prefix becomes cosmetic
 //   - `fenced-code` — content between ```...``` fences; the fence lines themselves
 //     are cosmetic, content inside is typeable as-is (verbatim code)
-//   - `prose` — blank-line-delimited paragraphs; spans mark `**bold**` markers,
-//     `_italic_` markers, inline `` `code` `` backticks, and link `[`/`](url)`
-//     syntax (the content between markers stays typeable)
+//   - `prose` — blank-line-delimited paragraphs; spans mark `**bold**`,
+//     `_italic_`, inline `` `code` ``, link `[`/`](url)` syntax, list markers
+//     (`- `, `1. `), and block-quote `> ` prefixes (content stays typeable)
 //
-// Lists and block quotes are deferred — they add value but not architecture;
-// revisit once dogfooding actual docs shows they're worth it.
+// Common-case markdown only: nested-list renumbering, lazy continuation, and
+// loose/tight distinctions are intentionally out of scope.
 export const markdownChunker: Chunker = text => {
 	const chunks: Chunk[] = [];
 	const lines = text.split('\n');
@@ -266,8 +268,9 @@ export const markdownChunker: Chunker = text => {
 	return chunks;
 };
 
-// Inline markdown decoration: bold (`**…**`), italic (`_…_`), inline code
-// (`` `…` ``), and links (`[text](url)`). Markers are cosmetic; content stays
+// Markdown decoration spans. Inline: bold (`**…**`), italic (`_…_`), inline
+// code (`` `…` ``), links (`[text](url)`). Line-prefix: list markers and
+// block-quote `>`. Markers are cosmetic; content stays
 // typeable. Italics use the underscore form only — single-asterisk italic
 // would need lookarounds to avoid matching inside `**bold**`, not worth it
 // for v1 since we mostly use `_…_` in our own docs.
@@ -351,6 +354,32 @@ function computeProseSpans(
 				style: 'md-link-syntax',
 			},
 		);
+	}
+
+	// The two below are *line-prefix* markers (`^`…`/gm`), not inline. The base
+	// typeable rules already drop any leading indent, so the span only needs to
+	// cover the marker itself, which sits at `chunkStart + index + indent.length`.
+
+	// List markers: `- `, `* `, `+ `, or `1. ` at line start. Marker + trailing
+	// space is cosmetic; item text is typed. The `[ \t]+` after the marker is the
+	// guard that keeps us off `-5`, `*ptr`, and `---` rules (no space → no match).
+	for (const match of segment.matchAll(/^([ \t]*)(?:[-*+]|\d+\.)[ \t]+/gm)) {
+		const markerStart = chunkStart + match.index + match[1]!.length;
+		spans.push({
+			start: markerStart,
+			end: chunkStart + match.index + match[0].length,
+			style: 'md-list-marker',
+		});
+	}
+
+	// Block-quote prefix: one or more `>` plus an optional space at line start.
+	for (const match of segment.matchAll(/^([ \t]*)>+ ?/gm)) {
+		const markerStart = chunkStart + match.index + match[1]!.length;
+		spans.push({
+			start: markerStart,
+			end: chunkStart + match.index + match[0].length,
+			style: 'md-quote-prefix',
+		});
 	}
 
 	return spans;

@@ -123,6 +123,8 @@ const spanVisuals: Record<SpanKind, SpanVisual> = {
 	'diff-metadata': {dimColor: true}, // Diff --git, index, ---/+++ paths
 	'diff-context': {color: 'gray'}, // Leading space on unchanged lines
 	'md-heading-prefix': {color: 'gray'}, // '#+ '
+	'md-list-marker': {color: 'gray'}, // '- ', '* ', '+ ', '1. '
+	'md-quote-prefix': {color: 'gray'}, // '> '
 	'md-emphasis-marker': {color: 'gray'}, // ** Or _
 	'md-link-syntax': {color: 'gray'}, // [ and ](url)
 	'md-code-span': {color: 'gray'}, // The `backtick` pair around inline code

@@ -160,3 +160,43 @@ export function mostMistypedWords(
 		)
 		.slice(0, n);
 }
+
+// Cloze selection: which typeable positions to blank for an active-recall
+// re-drill. The words worth re-engaging are the ones you fumbled — the slowest
+// and the most-mistyped, exactly what the results screen already surfaces. We
+// take the specific occurrence that was fumbled (each WordStat is one
+// occurrence, with its own `start`) and project its half-open UTF-16 range
+// [start, start + length) onto the typeable positions that fall inside it.
+//
+// Pure and selection-layer only: it returns a plain set of positions. The
+// engine never learns what "blanked" means, and the renderer just asks "is this
+// position in the set?" — masking stays a render concern (see the cloze plan).
+export function clozeBlanks(
+	typeableIndices: readonly number[],
+	stats: readonly WordStat[],
+	options?: {slow?: number; mistyped?: number},
+): ReadonlySet<number> {
+	const slow = options?.slow ?? 3;
+	const mistyped = options?.mistyped ?? 3;
+
+	// Union the two rankings, keyed by `start` so a word that is both slow and
+	// mistyped is chosen once. `start` is unique per occurrence.
+	const chosen = new Map<number, WordStat>();
+	for (const stat of slowestWords(stats, slow)) chosen.set(stat.start, stat);
+	for (const stat of mostMistypedWords(stats, mistyped))
+		chosen.set(stat.start, stat);
+
+	const ranges = [...chosen.values()].map(stat => ({
+		start: stat.start,
+		end: stat.start + stat.word.length,
+	}));
+
+	const blanked = new Set<number>();
+	for (const pos of typeableIndices) {
+		if (ranges.some(range => pos >= range.start && pos < range.end)) {
+			blanked.add(pos);
+		}
+	}
+
+	return blanked;
+}

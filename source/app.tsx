@@ -63,10 +63,6 @@ const statusFooterRows = 2;
 // the cell's display width so masking a wide glyph (CJK) keeps columns aligned.
 const maskGlyph = '▁';
 
-// Shared empty blank set so the no-cloze default is a stable reference (a fresh
-// `new Set()` per render would needlessly churn anything keyed on it).
-const emptyBlanked: ReadonlySet<number> = new Set();
-
 // Stable empty stats for the not-yet-finished run, so the cloze derivation below
 // doesn't recompute (and re-fire effects) on every keystroke before the end.
 const emptyStats: readonly WordStat[] = [];
@@ -90,13 +86,14 @@ type RacerProps = {
 	readonly isSplit: boolean;
 	readonly onSkipForward: (fromChunkIdx: number) => void;
 	readonly onSkipBack: (fromChunkIdx: number) => void;
-	// Cloze: typeable positions to hide behind ▁ until typed. Optional — a normal
-	// run passes nothing (no blanks). The set is a render-only overlay; the engine
-	// and typeableIndices are unchanged (you still type the whole passage).
-	readonly blanked?: ReadonlySet<number>;
-	// Ask App to re-drill this run's fumbles: remount over the same text with these
-	// positions blanked. Racer computes the set from its own review of the run.
-	readonly onCloze?: (blanked: ReadonlySet<number>) => void;
+	// Cloze re-drill: when true, typeableIndices has been re-scoped to just the
+	// fumbled positions — you fill in only those blanks, and the cursor skips the
+	// rest of the text (shown as dim context). Untyped typeable positions render as
+	// ▁ until recalled. A normal run passes nothing.
+	readonly isClozeRun?: boolean;
+	// Ask App to re-drill this run's fumbles: remount with typeableIndices scoped to
+	// these positions. Racer computes them from its own review of the run.
+	readonly onCloze?: (positions: readonly number[]) => void;
 	// --cloze: auto-fire onCloze when the warm-up run ends, no key press needed.
 	readonly isAutoCloze?: boolean;
 };
@@ -240,14 +237,14 @@ function useCharacterStyling({
 	typeableIndices,
 	chunks,
 	cursorPos,
-	blanked,
+	isClozeRun,
 }: {
 	readonly text: string;
 	readonly keystrokes: string[];
 	readonly typeableIndices: readonly number[];
 	readonly chunks: Chunk[];
 	readonly cursorPos: number | undefined;
-	readonly blanked: ReadonlySet<number>;
+	readonly isClozeRun: boolean;
 }) {
 	// Typeable text position → its keystroke index (inverse of the parallel array).
 	const positionToKeystrokeIndex = useMemo(() => {
@@ -301,12 +298,12 @@ function useCharacterStyling({
 
 	const isCursor = (textPos: number) => textPos === cursorPos;
 
-	// A cloze blank still waiting to be typed: hide its glyph so the user recalls
-	// it. Only positions at or ahead of the cursor are masked — once typed (ki <
-	// keystrokes.length) styleFor reveals the real char green/red. Blanked
-	// positions come from the typeable set, so ki is always defined here.
+	// In a cloze run, every typeable position is a blank to fill (typeableIndices
+	// was re-scoped to just the fumbled words). Hide each one until it's recalled:
+	// mask a typeable position still at or ahead of the cursor. Once typed (ki <
+	// keystrokes.length) styleFor reveals the real char green/red.
 	const isMasked = (textPos: number): boolean => {
-		if (!blanked.has(textPos)) return false;
+		if (!isClozeRun) return false;
 		const ki = positionToKeystrokeIndex.get(textPos);
 		return ki !== undefined && ki >= keystrokes.length;
 	};
@@ -396,7 +393,7 @@ export function Racer({
 	isSplit,
 	onSkipForward,
 	onSkipBack,
-	blanked = emptyBlanked,
+	isClozeRun = false,
 	onCloze,
 	isAutoCloze = false,
 }: RacerProps) {
@@ -442,7 +439,7 @@ export function Racer({
 		typeableIndices,
 		chunks,
 		cursorPos,
-		blanked,
+		isClozeRun,
 	});
 
 	const {progress, liveWpm, accuracy, chunkPos} = useStats({
@@ -456,12 +453,11 @@ export function Racer({
 	});
 
 	const done = endedAt !== undefined;
-	const isClozeRun = blanked.size > 0;
 
 	// Second fold over this run's keystroke log (review.ts), computed only once the
 	// run ends — emptyStats (a stable reference) while typing, so the cloze
 	// derivation below doesn't recompute on every keystroke. Feeds both the results
-	// panel and the cloze blank set.
+	// panel and the cloze blank positions.
 	const stats = useMemo(
 		() =>
 			endedAt === undefined
@@ -470,9 +466,9 @@ export function Racer({
 		[endedAt, text, typeableIndices, state.events],
 	);
 
-	// The fumbled words to blank if this run is re-drilled (slow + most-mistyped).
-	// Computed here, not in renderResults, so the key handler and the --cloze
-	// auto-advance both see it. Empty while typing (emptyStats ⇒ empty set).
+	// The fumbled positions to fill if this run is re-drilled (the slow +
+	// most-mistyped words). Computed here, not in renderResults, so the key handler
+	// and the --cloze auto-advance both see it. Empty while typing.
 	const drillBlanks = useMemo(
 		() => clozeBlanks(typeableIndices, stats),
 		[typeableIndices, stats],
@@ -494,7 +490,7 @@ export function Racer({
 			dispatch({kind: 'BACKSPACE'});
 		} else if (key.escape) {
 			dispatch({kind: 'RESET'});
-		} else if (done && input === 'c' && drillBlanks.size > 0) {
+		} else if (done && input === 'c' && drillBlanks.length > 0) {
 			// On the results screen, 'c' re-drills the fumbled words as a cloze: it
 			// asks App to remount us over the same text with those positions blanked.
 			// Checked before the generic input branch so it isn't a no-op TYPE_CHAR.
@@ -510,7 +506,7 @@ export function Racer({
 	// fumbles without a key press. Gated to the warm-up (!isClozeRun) so a cloze run
 	// that still has fumbles doesn't auto-loop — those you re-drill manually with 'c'.
 	useEffect(() => {
-		if (isAutoCloze && done && !isClozeRun && drillBlanks.size > 0) {
+		if (isAutoCloze && done && !isClozeRun && drillBlanks.length > 0) {
 			onCloze?.(drillBlanks);
 		}
 	}, [isAutoCloze, done, isClozeRun, drillBlanks, onCloze]);
@@ -808,7 +804,7 @@ export function Racer({
 					{done ? (
 						<>
 							Esc retype
-							{drillBlanks.size > 0 && ' · c re-drill blanks'}
+							{drillBlanks.length > 0 && ' · c re-drill blanks'}
 							{' · Ctrl+C quit'}
 						</>
 					) : (
@@ -868,17 +864,20 @@ export default function App({text, chunker, isSplit, isCloze}: Props) {
 	// survives re-renders and, when set, triggers one — unlike a plain variable.
 	const [startChunkIdx, setStartChunkIdx] = useState(0);
 
-	// Cloze re-drill state. `blanked` is the set of positions to hide (empty = a
-	// normal run); `clozeAttempt` bumps on each re-drill so the remount key below
-	// changes and Racer starts a fresh engine — the re-drill is a new typing run.
-	const [blanked, setBlanked] = useState<ReadonlySet<number>>(emptyBlanked);
+	// Cloze re-drill state. `clozeTypeable`, when set, re-scopes the run to just the
+	// fumbled positions (you fill in only those blanks); undefined = a normal full
+	// run. `clozeAttempt` bumps on each re-drill so the remount key below changes
+	// and Racer starts a fresh engine over the new scope.
+	const [clozeTypeable, setClozeTypeable] = useState<
+		readonly number[] | undefined
+	>(undefined);
 	const [clozeAttempt, setClozeAttempt] = useState(0);
 
-	// A finished run asked to re-drill its fumbles: same text and scope, only the
-	// blank overlay changes. useCallback keeps the identity stable so Racer's
-	// auto-advance effect doesn't see it churn and re-fire.
-	const reDrill = useCallback((positions: ReadonlySet<number>) => {
-		setBlanked(positions);
+	// A finished run asked to re-drill its fumbles: re-scope to exactly those
+	// positions. useCallback keeps the identity stable so Racer's auto-advance
+	// effect doesn't see it churn and re-fire.
+	const reDrill = useCallback((positions: readonly number[]) => {
+		setClozeTypeable(positions);
 		setClozeAttempt(n => n + 1);
 	}, []);
 
@@ -886,22 +885,24 @@ export default function App({text, chunker, isSplit, isCloze}: Props) {
 	// not the last skip anchor — so after typing forward into later chunks, Tab
 	// advances from where you are instead of jumping back. Clamped to a real chunk
 	// (and an unchanged value bails out of the re-render / remount). Skipping picks a
-	// new scope, so it clears any cloze blanks — the new run starts as a normal one.
+	// new scope, so it clears any cloze re-drill — the new run starts as a normal one.
 	const skipForward = (fromChunkIdx: number) => {
-		setBlanked(emptyBlanked);
+		setClozeTypeable(undefined);
 		setStartChunkIdx(Math.min(fromChunkIdx + 1, chunks.length - 1));
 	};
 
 	const skipBack = (fromChunkIdx: number) => {
-		setBlanked(emptyBlanked);
+		setClozeTypeable(undefined);
 		setStartChunkIdx(Math.max(fromChunkIdx - 1, 0));
 	};
 
-	// Re-scoped to the start chunk; Racer types over exactly this set.
-	const typeableIndices = useMemo(
+	// The scope's typeable set: the start chunk → end of text, except during a cloze
+	// re-drill, when it's narrowed to just the fumbled positions (clozeTypeable).
+	const scopedTypeableIndices = useMemo(
 		() => typeableIndicesFromChunk(allTypeableIndices, chunks, startChunkIdx),
 		[allTypeableIndices, chunks, startChunkIdx],
 	);
+	const typeableIndices = clozeTypeable ?? scopedTypeableIndices;
 
 	// The key changing tells React this is a *different* Racer, so it unmounts the
 	// old one and mounts a fresh instance — the engine's lazy initializer re-runs,
@@ -918,7 +919,7 @@ export default function App({text, chunker, isSplit, isCloze}: Props) {
 			viewportLineBudget={viewportLineBudget}
 			viewportColumns={viewportColumns}
 			isSplit={isSplit}
-			blanked={blanked}
+			isClozeRun={clozeTypeable !== undefined}
 			isAutoCloze={isCloze}
 			onSkipForward={skipForward}
 			onSkipBack={skipBack}

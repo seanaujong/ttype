@@ -161,21 +161,22 @@ export function mostMistypedWords(
 		.slice(0, n);
 }
 
-// Cloze selection: which typeable positions to blank for an active-recall
-// re-drill. The words worth re-engaging are the ones you fumbled — the slowest
-// and the most-mistyped, exactly what the results screen already surfaces. We
-// take the specific occurrence that was fumbled (each WordStat is one
-// occurrence, with its own `start`) and project its half-open UTF-16 range
-// [start, start + length) onto the typeable positions that fall inside it.
+// Cloze selection: the typeable positions to blank for an active-recall re-drill.
+// The words worth re-engaging are the ones you fumbled — the slowest and the
+// most-mistyped, exactly what the results screen already surfaces. We take the
+// specific occurrence that was fumbled (each WordStat is one occurrence, with its
+// own `start`) and project its half-open UTF-16 range [start, start + length)
+// onto the typeable positions inside it.
 //
-// Pure and selection-layer only: it returns a plain set of positions. The
-// engine never learns what "blanked" means, and the renderer just asks "is this
-// position in the set?" — masking stays a render concern (see the cloze plan).
+// The result is itself a typeable-index list: the cloze run re-scopes to exactly
+// these positions (you fill in only the blanks; the rest of the text is shown as
+// context the cursor skips). It stays ascending because typeableIndices is.
+// Pure and selection-layer only — the engine never learns what "cloze" means.
 export function clozeBlanks(
 	typeableIndices: readonly number[],
 	stats: readonly WordStat[],
 	options?: {slow?: number; mistyped?: number},
-): ReadonlySet<number> {
+): readonly number[] {
 	const slow = options?.slow ?? 3;
 	const mistyped = options?.mistyped ?? 3;
 
@@ -191,12 +192,7 @@ export function clozeBlanks(
 		end: stat.start + stat.word.length,
 	}));
 
-	const blanked = new Set<number>();
-	for (const pos of typeableIndices) {
-		if (ranges.some(range => pos >= range.start && pos < range.end)) {
-			blanked.add(pos);
-		}
-	}
-
-	return blanked;
+	return typeableIndices.filter(pos =>
+		ranges.some(range => pos >= range.start && pos < range.end),
+	);
 }

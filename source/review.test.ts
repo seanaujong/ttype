@@ -75,29 +75,26 @@ test('analyzeByWord: a clean run has no wrong keystrokes', t => {
 	t.deepEqual(mostMistypedWords(stats, 3), []);
 });
 
-const sortedBlanks = (blanked: ReadonlySet<number>): number[] =>
-	[...blanked].sort((a, b) => a - b);
-
-test('clozeBlanks: blanks the fumbled word, leaving the rest visible', t => {
+test('clozeBlanks: selects the fumbled word, leaving the rest as context', t => {
 	const stats = analyzeByWord(text, typeable, events);
 	// "cd" is both the slowest (325 vs 100 ms/char) and the only mistyped word.
-	const blanked = clozeBlanks(typeable, stats, {slow: 1, mistyped: 1});
-	t.deepEqual(sortedBlanks(blanked), [3, 4]); // The two positions inside "cd".
-	t.false(blanked.has(2)); // The inter-word space stays visible.
+	const positions = clozeBlanks(typeable, stats, {slow: 1, mistyped: 1});
+	t.deepEqual(positions, [3, 4]); // The two positions inside "cd".
+	t.false(positions.includes(2)); // The inter-word space stays context.
 });
 
-test('clozeBlanks: unions slow + mistyped, deduped, range-projected', t => {
+test('clozeBlanks: unions slow + mistyped, deduped, ascending', t => {
 	const stats = analyzeByWord(text, typeable, events);
 	// Generous limits: both words qualify as slow; "cd" is also mistyped but is
 	// chosen once. The space (pos 2) is in neither word's range.
-	const blanked = clozeBlanks(typeable, stats);
-	t.deepEqual(sortedBlanks(blanked), [0, 1, 3, 4]);
+	const positions = clozeBlanks(typeable, stats);
+	t.deepEqual(positions, [0, 1, 3, 4]);
 });
 
-test('clozeBlanks: nothing to re-drill yields an empty set', t => {
+test('clozeBlanks: nothing to re-drill yields an empty list', t => {
 	// No keystrokes → no timing and no errors → no word qualifies as slow or
 	// mistyped, so there is nothing to blank.
 	const stats = analyzeByWord('go ahead', [0, 1, 3, 4, 5, 6, 7], []);
-	const blanked = clozeBlanks([0, 1, 3, 4, 5, 6, 7], stats);
-	t.is(blanked.size, 0);
+	const positions = clozeBlanks([0, 1, 3, 4, 5, 6, 7], stats);
+	t.is(positions.length, 0);
 });

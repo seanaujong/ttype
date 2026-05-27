@@ -56,14 +56,29 @@ test('diffChunker: multi-hunk diff splits by @@', t => {
 	t.is(chunks.length, 2);
 });
 
-test('diffChunker: metadata before first @@ is its own chunk', t => {
+test('diffChunker: the leading metadata preamble folds into the first hunk', t => {
 	const diff =
 		'diff --git a/foo b/foo\nindex abc..def\n--- a/foo\n+++ b/foo\n@@ -1 +1 @@\n+added';
 	const chunks = diffChunker(diff);
+	// The preamble has nothing typeable, so it isn't a chunk of its own — it's
+	// part of the first hunk's chunk, which starts at 0. (Otherwise the run would
+	// open on "chunk 2".)
+	t.is(chunks.length, 1);
+	t.is(chunks[0]!.start, 0);
+	t.is(chunks[0]!.end, diff.length);
+	// And the first typeable position lands inside that chunk 1.
+	const typeable = computeTypeableIndices(diff, chunks);
+	t.true(typeable.length > 0);
+	t.true(typeable[0]! >= chunks[0]!.start && typeable[0]! < chunks[0]!.end);
+});
+
+test('diffChunker: a preamble before multiple hunks rides with the first hunk', t => {
+	const diff =
+		'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n+one\n@@ -5 +5 @@\n+two';
+	const chunks = diffChunker(diff);
+	// Preamble + first hunk = chunk 1; the second hunk = chunk 2.
 	t.is(chunks.length, 2);
-	t.true(
-		chunks[0]!.end < chunks[1]!.start || chunks[0]!.end === chunks[1]!.start,
-	);
+	t.is(chunks[0]!.start, 0);
 });
 
 // ComputeTypeableIndices tests — exercise the global skip rules (leading

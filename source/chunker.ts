@@ -67,30 +67,28 @@ export const blankLineChunker: Chunker = text => {
 // Splits unified-diff output into hunks. Lines starting with "@@" delimit
 // hunks; metadata before the first @@ becomes one preceding chunk.
 export const diffChunker: Chunker = text => {
-	const chunks: Chunk[] = [];
-	let lastStart = 0;
+	// Hunk headers (@@) are the natural chunk boundaries. The text before the
+	// first @@ is the file preamble (diff --git / index / --- / +++) — all
+	// cosmetic, nothing to type — so it doesn't get a chunk of its own; that would
+	// open the run on "chunk 2", as if chunk 1 had been skipped. Fold it into the
+	// first hunk by treating the first @@ as a non-boundary, so the run starts on
+	// chunk 1 with the preamble shown (dimmed) above the first typed line. Later
+	// files' preambles already ride on the end of the preceding hunk's chunk, so
+	// only the leading one needs this.
+	const hunkStarts = [...text.matchAll(/^@@/gm)].map(match => match.index);
+	const boundaries = [0, ...hunkStarts.slice(1)];
 
-	for (const match of text.matchAll(/^@@/gm)) {
-		const matchStart = match.index;
-		if (matchStart > lastStart) {
+	const chunks: Chunk[] = [];
+	for (const [i, start] of boundaries.entries()) {
+		const end = boundaries[i + 1] ?? text.length;
+		if (end > start) {
 			chunks.push({
-				start: lastStart,
-				end: matchStart,
+				start,
+				end,
 				kind: 'diff-hunk',
-				spans: computeSpans(text, lastStart, matchStart),
+				spans: computeSpans(text, start, end),
 			});
 		}
-
-		lastStart = matchStart;
-	}
-
-	if (lastStart < text.length) {
-		chunks.push({
-			start: lastStart,
-			end: text.length,
-			kind: 'diff-hunk',
-			spans: computeSpans(text, lastStart, text.length),
-		});
 	}
 
 	return chunks;

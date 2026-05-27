@@ -4,7 +4,8 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 
 ## At a glance
 
-- **Four layers, top to bottom**: CLI adapter → React shell → pure modules (engine, chunker) → terminal output.
+- **Two halves**: a _structure_ (what may depend on what) and the _invariants_ that structure exists to protect. The diagram below is the structure; the layer contracts and the enforcement table are the invariants. Structure without invariants is arbitrary; invariants without structure are unenforceable.
+- **Four layers, top to bottom**: CLI adapter → React shell → pure modules (engine, chunker, layout) → terminal output.
 - **Data flows down, no upward references**: lower layers don't know about layers above them. Each pure module imports nothing from the layers that use it.
 - **The engine knows nothing about rendering**: it consumes typeable indices and keystroke actions, produces state.
 - **The chunker knows nothing about typing**: it classifies bytes into structural regions; whether and how those regions are typed is consumer's choice.
@@ -13,67 +14,63 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 ## The diagram
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  cli.tsx                                       (adapter / orchestrator) │
-│                                                                         │
-│  argv  ─▶  meow.input[0]  ─▶  resolveSourceText  ─▶  text               │
-│  argv  ─▶  meow.flags     ─▶  selectChunker      ─▶  chunker            │
-│  env   ─▶  process.stdout.rows                   ─▶  viewportLineBudget │
-│                                                                         │
-│             <App text={text} chunker={chunker} viewportLineBudget={…}/> │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ props
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  app.tsx                                          (React composition)   │
-│                                                                         │
-│  ── Setup (memoized; runs on mount and when deps change) ──             │
-│                                                                         │
-│   text ──────────────────┐                                              │
-│                          ├──▶ chunker(text)  ──▶  chunks                │
-│   chunker ───────────────┘                          │                   │
-│                                                     ▼                   │
-│   text  ──────────────────▶  computeTypeableIndices(text, chunks)       │
-│                                              │                          │
-│                                              ▼                          │
-│                                  typeableIndices                        │
-│                                              │                          │
-│                                              ▼                          │
-│   useReducer(reducer, init=() => initialState(text, typeableIndices))  │
-│                                              │                          │
-│                                              ▼                          │
-│                                       [state, dispatch]                 │
-│                                                                         │
-│  ── Per-render derived state (4 custom hooks) ──                        │
-│                                                                         │
-│   useLineLayout(text)        ──▶  lineRows, lineForPos                  │
-│   useChunkViewport({chunks, focusPos, lineRows, lineForPos, ...})       │
-│                              ──▶  focusedChunk, chunkStartLine, etc.    │
-│   useCharacterStyling({...}) ──▶  colorFor, isCursor                    │
-│   useStats({...})            ──▶  progress, liveWpm, accuracy, chunkPos │
-│                                                                         │
-│  ── Side effects + render ──                                            │
-│                                                                         │
-│   useInput((input, key) => dispatch({...}))                             │
-│   return <Box>...</Box>                                                 │
-└─────────────────┬────────────────────────────────┬─────────────────────┘
-                  │                                │
-                  ▼                                ▼
-┌─────────────────────────────┐    ┌─────────────────────────────────────┐
-│  engine.ts          (pure)  │    │  chunker.ts                 (pure)  │
-│                             │    │                                     │
-│  type State / Action        │    │  type Chunk / Span / ChunkKind      │
-│  reducer(state, action)     │    │  blankLineChunker / diffChunker     │
-│  initialState(text, tI)     │    │  computeTypeableIndices(text, ch)   │
-│  replay(text, events, tI)   │    │                                     │
-└─────────────────────────────┘    └─────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ cli.tsx                                            (adapter / orchestrator)  │
+│                                                                              │
+│ argv  ─▶  meow.input[0]  ─▶  resolveSourceText  ─▶  text                     │
+│ argv  ─▶  meow.flags     ─▶  selectChunker      ─▶  chunker                  │
+│ argv  ─▶  meow.flags.split                      ─▶  isSplit                  │
+│ env   ─▶  process.stdout.rows                   ─▶  viewportLineBudget       │
+│ env   ─▶  process.stdout.columns                ─▶  viewportColumns          │
+│                                                                              │
+│     <App text chunker viewportLineBudget viewportColumns isSplit />          │
+└───────────────────────────────────────┬──────────────────────────────────────┘
+                                        │ props
+                                        ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ app.tsx                                                 (React composition)  │
+│                                                                              │
+│ ── App: the scope shell — owns which chunk the run starts on ──              │
+│                                                                              │
+│ chunker(text)                          ──▶  chunks         (memoized)        │
+│ computeTypeableIndices(text, chunks)   ──▶  allTypeableIndices               │
+│ useState                               ──▶  startChunkIdx                    │
+│ typeableIndicesFromChunk(…, startChunkIdx) ──▶ typeableIndices (scoped)      │
+│                                                                              │
+│ <Racer key={startChunkIdx} …/>   — key change ⇒ remount ⇒ run resets         │
+│      │  scoped typeableIndices                                               │
+│      ▼                                                                       │
+│ ── Racer: one typing session over text[startChunk … end-of-text] ──          │
+│                                                                              │
+│ useReducer(reducer, init = () => initialState(text, typeableIndices))        │
+│                                        ──▶  [state, dispatch]                │
+│                                                                              │
+│ useLineLayout(text)       ──▶  lineRows, lineForPos                          │
+│ useChunkViewport({…})     ──▶  focusedChunk, visibleStart/EndLine, …         │
+│ useCharacterStyling({…})  ──▶  styleFor, isCursor, spanKindAt                │
+│ useStats({…})             ──▶  progress, liveWpm, accuracy, chunkPos         │
+│                                                                              │
+│ useInput  ─▶  Tab/Shift+Tab → onSkip* (to App)   ·   else → dispatch         │
+│ renderUnifiedView() / renderSplitView()  ──▶  <Box> … </Box>                 │
+└───────────┬───────────────────────────┬───────────────────────────┬──────────┘
+            │                           │                           │
+            ▼                           ▼                           ▼
+┌──────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
+│ engine.ts      (pure)│    │ chunker.ts     (pure)│    │ layout.ts      (pure)│
+│                      │    │                      │    │                      │
+│ State / Action       │    │ Chunk / Span         │    │ DiffLine / SplitRow  │
+│ reducer              │    │ ChunkKind/SpanKind   │    │ visibleLineWindow    │
+│ initialState         │    │ blankLine/diff/md    │    │ horizontalOffset     │
+│ replay               │    │ computeTypeableIdx   │    │ splitDiffRows        │
+│ matchesExpected      │    │ typeableIdxFromChunk │    │                      │
+└──────────────────────┘    └──────────────────────┘    └──────────────────────┘
 ```
 
 ## How each layer separates
 
-**`cli.tsx`** is the only file that touches the environment: file paths, stdin, terminal size, command-line flags. It produces three values (text, chunker, viewport budget) and hands them to `<App />`. If you ran ttype in a non-CLI context (e.g., a web demo), only this file would need a sibling.
+**`cli.tsx`** is the only file that touches the environment: file paths, stdin, terminal size, command-line flags. It resolves those into `<App />`'s props — the text, the chunker, the viewport budget and width, and the split flag — and hands them over. If you ran ttype in a non-CLI context (e.g., a web demo), only this file would need a sibling.
 
-**`app.tsx`** composes pure modules. It knows about all the layers but doesn't _contain_ their logic — it imports `engine.ts` and `chunker.ts`, calls their functions, threads state through React hooks. The four custom hooks (`useLineLayout`, `useChunkViewport`, `useCharacterStyling`, `useStats`) bundle related derivations to keep `App` itself a short composition.
+**`app.tsx`** composes pure modules. It knows about all the layers but doesn't _contain_ their logic — it imports `engine.ts`, `chunker.ts`, and `layout.ts`, calls their functions, threads state through React hooks. It splits into two components: **`App`** is a thin scope shell — it owns `startChunkIdx` (which chunk the run starts on) and re-scopes the typeable indices when `Tab`/`Shift+Tab` move it. **`Racer`** is one typing session over that scope: the engine fold plus the four custom hooks (`useLineLayout`, `useChunkViewport`, `useCharacterStyling`, `useStats`) that bundle related derivations to keep the component a short composition. Skipping a chunk changes `Racer`'s `key`, which remounts it — that remount _is_ the run reset, so the engine itself needs no "rescope" action.
 
 **`engine.ts`** is a pure state machine. Inputs: text + typeable indices + an action. Output: new state. No imports, no I/O, no React, no rendering. Testable by feeding actions and asserting on returned state.
 
@@ -84,6 +81,18 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 - `computeTypeableIndices(text, chunks)` — applies engine-global skip rules (leading whitespace, blank lines, mid-line tabs) **and** subtracts chunk-provided cosmetic spans. Returns the positions the engine cursor can rest on.
 
 The chunker is pure: text-in, data-out. No I/O, no React.
+
+## Layer contracts (guarantees / assumes)
+
+"How each layer separates" says what each layer _owns_. This says what you can _rely on_ and what you must _preserve_ when you change it — the invariants the structure above exists to keep cheap. The rule when a change touches a layer: **honor its assumptions, preserve its guarantees, and fix bugs in the layer that _owns_ the invariant — not the layer that merely surfaces it.**
+
+| Layer               | Guarantees                                                                                                                                | Assumes                                                                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `cli.tsx` (adapter) | The only code that touches the environment (I/O, argv, terminal size).                                                                    | Its normalizations preserve the typeable contract — it may re-encode transport, never change _what counts as typed_. |
+| `app.tsx` (shell)   | The frame fits the terminal (≤ rows; every row < cols); display transforms (tab→space, truncation, scroll) never change the typeable set. | `text` and `typeableIndices` from below are authoritative.                                                           |
+| `engine.ts`         | State is a pure, replayable function of `(text, typeableIndices, events)` — no hidden inputs (clock, global, env); never mutates.         | `typeableIndices` is a valid, ascending subset of text positions.                                                    |
+| `chunker.ts`        | The typeable set excludes everything you shouldn't type — diff markers, line indentation, leading whitespace, cosmetic spans.             | Nothing about how its output is rendered or folded.                                                                  |
+| `layout.ts`         | Pure geometry (`splitDiffRows`, `visibleLineWindow`, `horizontalOffset`) — no Ink, no engine; unit-testable in isolation.                 | Its inputs are already classified/measured by the caller.                                                            |
 
 ## Data flow during typing
 
@@ -142,11 +151,28 @@ We learned this the hard way. Expanding tabs → spaces _at the input boundary_,
 
 The tell that this boundary is being crossed: **a "display" change that moves the typeable-index count.** `computeTypeableIndices(text).length` is a cheap oracle — if a rendering tweak changes it, the tweak is in the wrong layer. (A regression test guards the specific case: a diff's indentation is never typeable, tab- or space-indented.)
 
+## Which invariants are enforced, and how
+
+An invariant is only as good as what holds it. Strongest is a type the compiler checks; next, a test; prose is the last resort — for invariants types can't express. Rule of thumb: **write an invariant in prose only if it's load-bearing _and_ not enforceable by a type or test.** If a type enforces it, the type _is_ the documentation; delete the prose.
+
+| Invariant                                                                | Held by                                                                                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Engine never mutates                                                     | type — `Readonly<…>`                                                                                                                    |
+| Every `SpanKind` has a visual                                            | type — exhaustive `Record<SpanKind, SpanVisual>` (already caught a miss at compile time)                                                |
+| Every union `switch` is total                                            | type — `satisfies never`                                                                                                                |
+| Engine is a pure, replayable fold                                        | test — JSON fixtures replayed through `applyEvent`                                                                                      |
+| Typeable set excludes non-typed chars (markers, indentation, leading ws) | test — `chunker.test.ts`                                                                                                                |
+| Display transforms don't change the typeable set                         | prose + oracle — `computeTypeableIndices(text).length` is invariant under a render change (types can't see it: both sides are `string`) |
+| **Frame fits the terminal**                                              | **code only — no standing test** ⚠️                                                                                                     |
+| Spans don't overlap                                                      | tolerated — "last write wins"; not enforced                                                                                             |
+
+Two soft spots, named honestly. **"Frame fits the terminal"** is load-bearing (overflow makes Ink stack frames into a trail) but is only verified by ad-hoc scripts — closing it means either a rendering test (which cuts against the project's no-rendering-tests stance) or consciously accepting it as code-enforced-and-documented. **Span overlap** is tolerated rather than enforced. Everything above the line is held by a type or a test; those two are the candidates for future hardening.
+
 ## When the diagram changes
 
-This doc is current as of the spans / cosmetic-region refactor. Things that would update the diagram:
+The diagram is current as of the `App`/`Racer` split and the addition of `layout.ts` as a third pure module. Things that would move it next:
 
-- **Adding a third pure module** (e.g., `review.ts` for post-session analysis) — the bottom layer grows from two boxes to three.
+- **Adding a pure module** (e.g., `review.ts` for post-session analysis) — the bottom layer grows another box, as `layout.ts` already did.
 - **Hooks moving out of `app.tsx`** to `source/hooks/`-style files — the middle layer gains an explicit sublayer.
 - **Plugin architecture** (e.g., user-supplied chunkers) — adds a registration surface around `chunker.ts`.
 

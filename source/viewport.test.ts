@@ -1,9 +1,7 @@
 import test from 'ava';
-import React from 'react';
-import {render} from 'ink-testing-library';
 import stringWidth from 'string-width';
-import App from './app.js';
 import {blankLineChunker, diffChunker, type Chunker} from './chunker.js';
+import {renderApp} from './ink-harness.js';
 import {frameBudget, frameFits, frameViolations} from './viewport.js';
 
 // --- Pure budget + predicate ---
@@ -48,23 +46,22 @@ test('frameFits: an over-wide row is a violation (by display width)', t => {
 });
 
 // --- The standing guard: real emitted frames must not fill the terminal ---
-// The harness stdout is columns 100 (fixed) and rows undefined → useTerminalSize
-// falls back to 24, so a synchronously-read first frame is rendered for 24x100.
-// Asserted against the *raw* terminal dims (strictly fewer than `rows` lines, each
-// row strictly narrower than `cols`) — independent of frameBudget, so this also
-// catches a regression in the reservation itself.
+// renderApp's mock terminal is 24 rows × 100 columns (its defaults — see
+// ink-harness.ts). fitsTerminal asserts against those *raw* dims (strictly fewer
+// than `rows` lines, each row strictly narrower than `columns`), independent of
+// frameBudget, so it also catches a regression in the reservation math itself.
 function fitsTerminal(lines: readonly string[], rows: number, columns: number) {
 	return (
 		lines.length < rows && lines.every(line => stringWidth(line) < columns)
 	);
 }
 
+// The first frame is painted synchronously by render(), so no tick is needed to
+// read it — only the keystroke/resize tests below have to await effects.
 function firstFrame(text: string, chunker: Chunker, isSplit: boolean) {
-	const {lastFrame, unmount} = render(
-		React.createElement(App, {text, chunker, isSplit}),
-	);
-	const lines = (lastFrame() ?? '').split('\n');
-	unmount();
+	const app = renderApp({text, chunker, isSplit});
+	const lines = app.frameLines();
+	app.unmount();
 	return lines;
 }
 
@@ -89,36 +86,29 @@ test.serial(
 	'frame fits: the footer does not wrap at a narrow width',
 	async t => {
 		const text = 'paragraph one here\n\nparagraph two here\n\nparagraph three';
-		const {lastFrame, stdin, stdout, unmount} = render(
-			React.createElement(App, {
-				text,
-				chunker: blankLineChunker,
-				isSplit: false,
-			}),
-		);
-		// Shim the ink@4 ↔ ink-testing-library@3 stdin gap so useInput's effect
-		// survives, then drive a resize down to 40 columns (see ink-testing-harness).
-		const anyStdin = stdin as unknown as Record<string, unknown>;
-		anyStdin['ref'] = () => undefined;
-		anyStdin['unref'] = () => undefined;
-		const anyStdout = stdout as unknown as {
-			emit: (event: string) => void;
-		};
-		const tick = async () =>
-			new Promise(resolve => {
-				setTimeout(resolve, 60);
-			});
-		// Let useTerminalSize's 'resize' listener attach (the shim keeps useInput's
-		// effect from throwing) before we emit, then re-render at the new width.
-		await tick();
-		Object.defineProperty(stdout, 'columns', {
-			configurable: true,
-			get: () => 40,
-		});
-		anyStdout.emit('resize');
-		await tick();
-		const lines = (lastFrame() ?? '').split('\n');
-		unmount();
-		t.true(fitsTerminal(lines, 24, 40));
+		const app = renderApp({text, chunker: blankLineChunker, isSplit: false});
+		// Resize down to 40 columns: the harness fires the 'resize' event
+		// useTerminalSize listens for, then waits for the re-render to flush.
+		await app.resize({columns: 40});
+		const lines = app.frameLines();
+		app.unmount();
+		t.true(fitsTerminal(lines, app.terminal.rows, app.terminal.columns));
+	},
+);
+
+test.serial(
+	'frame fits: the frame stays within budget while typing',
+	async t => {
+		const text = 'the quick brown fox jumps over the lazy dog';
+		const app = renderApp({text, chunker: blankLineChunker, isSplit: false});
+		const before = app.lastFrame();
+		// Correct keystrokes drive the engine fold through the harness's input bridge.
+		await app.type('the quick');
+		const after = app.frameLines();
+		app.unmount();
+		// The keystrokes registered (the frame advanced from its initial paint) ...
+		t.not(after.join('\n'), before);
+		// ... and the live-updating frame still fits the terminal as it grows.
+		t.true(fitsTerminal(after, app.terminal.rows, app.terminal.columns));
 	},
 );

@@ -1,5 +1,5 @@
-import {Box, Text, useInput} from 'ink';
-import React, {useMemo, useReducer, useState} from 'react';
+import {Box, Text, useInput, useStdout} from 'ink';
+import React, {useEffect, useMemo, useReducer, useState} from 'react';
 import {
 	computeTypeableIndices,
 	typeableIndicesFromChunk,
@@ -47,8 +47,6 @@ const statusFooterRows = 2;
 type Props = {
 	readonly text: string;
 	readonly chunker: Chunker;
-	readonly viewportLineBudget: number;
-	readonly viewportColumns: number; // Terminal width, for horizontal scrolling
 	readonly isSplit: boolean; // Two-column diff view; default is the unified view
 };
 
@@ -646,7 +644,9 @@ function Racer({
 				borderLeft={false}
 				borderRight={false}
 			>
-				<Text dimColor>
+				{/* truncate so the footer is always one line: if it wraps, the frame
+				    grows past the rows we reserved for it and overflows the terminal. */}
+				<Text dimColor wrap="truncate">
 					{chunkPos && `${chunkPos}  ·  `}
 					{progress} keystrokes · {liveWpm} WPM · {accuracy}% accuracy
 					{showSkipHint && '  ·  ⇥/⇧⇥ skip chunk'}
@@ -656,13 +656,37 @@ function Racer({
 	);
 }
 
-export default function App({
-	text,
-	chunker,
-	viewportLineBudget,
-	viewportColumns,
-	isSplit,
-}: Props) {
+// Live terminal size. Ink reads the dimensions once at startup, but the window
+// can be resized mid-session; without tracking that, the layout keeps drawing at
+// the old size and rows wrap past the (now narrower) edge — which makes Ink
+// stack frames and flicker. useStdout hands us the output stream; we read its
+// columns/rows and re-read on every 'resize' event so the viewport follows the
+// window. useEffect's cleanup removes the listener when App unmounts.
+function useTerminalSize() {
+	const {stdout} = useStdout();
+	const [size, setSize] = useState({
+		columns: stdout.columns ?? 80,
+		rows: stdout.rows ?? 24,
+	});
+	useEffect(() => {
+		const onResize = () => {
+			setSize({columns: stdout.columns ?? 80, rows: stdout.rows ?? 24});
+		};
+
+		stdout.on('resize', onResize);
+		return () => {
+			stdout.off('resize', onResize);
+		};
+	}, [stdout]);
+	return size;
+}
+
+export default function App({text, chunker, isSplit}: Props) {
+	// The viewport follows the live terminal so a resize never leaves rows drawn
+	// wider or taller than the window (which would wrap and flicker).
+	const {columns: viewportColumns, rows: viewportLineBudget} =
+		useTerminalSize();
+
 	// Source-level work, done once (text/chunker are stable for a session): split
 	// into chunks, then derive every typeable position over the whole text.
 	const chunks = useMemo(() => chunker(text), [text, chunker]);

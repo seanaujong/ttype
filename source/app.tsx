@@ -21,6 +21,7 @@ import {
 	type DiffLineKind,
 } from './layout.js';
 import {analyzeByWord, mostMistypedWords, slowestWords} from './review.js';
+import {frameBudget} from './viewport.js';
 
 // Lines kept below the cursor when a chunk is taller than the viewport, so you
 // can read a little ahead. Small on purpose: anything below the cursor wraps
@@ -363,12 +364,15 @@ function Racer({
 
 	const {lineRows, lineForPos} = useLineLayout(text);
 
-	// Reserve the footer's rows AND the terminal's last row — the vertical twin of
-	// usableColumns reserving the last column. A frame that fills the final row
-	// makes the terminal scroll, so Ink repaints the whole frame each keystroke
-	// (flicker) instead of updating in place; one spare row keeps it smooth.
-	const usableRows = Math.max(1, viewportLineBudget - 1);
-	const contentLineBudget = Math.max(1, usableRows - statusFooterRows);
+	// How much terminal the frame may use, reserving the last row and column so it
+	// never fills an edge (which makes the terminal scroll/wrap and Ink repaint —
+	// the flicker). viewport.ts owns this; here we just consume contentLineBudget
+	// (content height) and usableColumns (content width).
+	const {contentLineBudget, usableColumns} = frameBudget(
+		viewportLineBudget,
+		viewportColumns,
+		statusFooterRows,
+	);
 
 	const {focusedChunk, visibleStartLine, visibleEndLine, isInFocus} =
 		useChunkViewport({
@@ -425,12 +429,6 @@ function Racer({
 	});
 
 	const visibleLines = lineRows.slice(visibleStartLine, visibleEndLine);
-
-	// Reserve the terminal's last column. A row that fills the final cell makes
-	// the terminal auto-wrap it onto a second line, which inflates height and
-	// re-triggers the frame-stacking overflow. Keeping everything (content rows
-	// *and* the footer border) within `usableColumns` leaves that cell empty.
-	const usableColumns = Math.max(1, viewportColumns - 1);
 
 	// Horizontal scrolling. Rather than soft-wrap a line wider than its column
 	// (which inflates height and desyncs the split columns), each line renders on

@@ -5,7 +5,7 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 ## At a glance
 
 - **Two halves**: a _structure_ (what may depend on what) and the _invariants_ that structure exists to protect. The diagram below is the structure; the layer contracts and the enforcement table are the invariants. Structure without invariants is arbitrary; invariants without structure are unenforceable.
-- **Four layers, top to bottom**: CLI adapter → React shell → pure modules (engine, chunker, layout) → terminal output.
+- **Four layers, top to bottom**: CLI adapter → React shell → pure modules (engine, chunker, layout, grapheme, review, viewport) → terminal output.
 - **Data flows down, no upward references**: lower layers don't know about layers above them. Each pure module imports nothing from the layers that use it.
 - **The engine knows nothing about rendering**: it consumes typeable indices and keystroke actions, produces state.
 - **The chunker knows nothing about typing**: it classifies bytes into structural regions; whether and how those regions are typed is consumer's choice.
@@ -86,13 +86,14 @@ The chunker is pure: text-in, data-out. No I/O, no React.
 
 "How each layer separates" says what each layer _owns_. This says what you can _rely on_ and what you must _preserve_ when you change it — the invariants the structure above exists to keep cheap. The rule when a change touches a layer: **honor its assumptions, preserve its guarantees, and fix bugs in the layer that _owns_ the invariant — not the layer that merely surfaces it.**
 
-| Layer               | Guarantees                                                                                                                                | Assumes                                                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `cli.tsx` (adapter) | The only code that touches the environment (I/O, argv, terminal size).                                                                    | Its normalizations preserve the typeable contract — it may re-encode transport, never change _what counts as typed_. |
-| `app.tsx` (shell)   | The frame fits the terminal (≤ rows; every row < cols); display transforms (tab→space, truncation, scroll) never change the typeable set. | `text` and `typeableIndices` from below are authoritative.                                                           |
-| `engine.ts`         | State is a pure, replayable function of `(text, typeableIndices, events)` — no hidden inputs (clock, global, env); never mutates.         | `typeableIndices` is a valid, ascending subset of text positions.                                                    |
-| `chunker.ts`        | The typeable set excludes everything you shouldn't type — diff markers, line indentation, leading whitespace, cosmetic spans.             | Nothing about how its output is rendered or folded.                                                                  |
-| `layout.ts`         | Pure geometry (`splitDiffRows`, `visibleLineWindow`, `horizontalOffset`) — no Ink, no engine; unit-testable in isolation.                 | Its inputs are already classified/measured by the caller.                                                            |
+| Layer               | Guarantees                                                                                                                                                                  | Assumes                                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `cli.tsx` (adapter) | The only code that touches the environment (I/O, argv, terminal size).                                                                                                      | Its normalizations preserve the typeable contract — it may re-encode transport, never change _what counts as typed_. |
+| `app.tsx` (shell)   | The frame fits the terminal (≤ rows; every row < cols); display transforms (tab→space, truncation, scroll) never change the typeable set.                                   | `text` and `typeableIndices` from below are authoritative.                                                           |
+| `engine.ts`         | State is a pure, replayable function of `(text, typeableIndices, events)` — no hidden inputs (clock, global, env); never mutates.                                           | `typeableIndices` is a valid, ascending subset of text positions.                                                    |
+| `chunker.ts`        | The typeable set excludes everything you shouldn't type — diff markers, line indentation, leading whitespace, cosmetic spans.                                               | Nothing about how its output is rendered or folded.                                                                  |
+| `layout.ts`         | Pure geometry (`splitDiffRows`, `visibleLineWindow`, `horizontalOffset`) — no Ink, no engine; unit-testable in isolation.                                                   | Its inputs are already classified/measured by the caller.                                                            |
+| `viewport.ts`       | Owns "frame fits the terminal": `frameBudget` reserves the last row and column; `frameFits` / `frameViolations` are the invariant as a predicate. Pure (string-width only). | Its caller feeds it the live terminal size.                                                                          |
 
 ## Data flow during typing
 
@@ -163,14 +164,14 @@ An invariant is only as good as what holds it. Strongest is a type the compiler 
 | Engine is a pure, replayable fold                                        | test — JSON fixtures replayed through `applyEvent`                                                                                      |
 | Typeable set excludes non-typed chars (markers, indentation, leading ws) | test — `chunker.test.ts`                                                                                                                |
 | Display transforms don't change the typeable set                         | prose + oracle — `computeTypeableIndices(text).length` is invariant under a render change (types can't see it: both sides are `string`) |
-| **Frame fits the terminal**                                              | **code only — no standing test** ⚠️                                                                                                     |
+| Frame fits the terminal                                                  | test — `frameFits` over real emitted frames (tall chunk, wide line, `--split`, narrow footer); owned by `viewport.ts`                   |
 | Spans don't overlap                                                      | tolerated — "last write wins"; not enforced                                                                                             |
 
-Two soft spots, named honestly. **"Frame fits the terminal"** is load-bearing (overflow makes Ink stack frames into a trail) but is only verified by ad-hoc scripts — closing it means either a rendering test (which cuts against the project's no-rendering-tests stance) or consciously accepting it as code-enforced-and-documented. **Span overlap** is tolerated rather than enforced. Everything above the line is held by a type or a test; those two are the candidates for future hardening.
+One soft spot remains, named honestly: **span overlap** is tolerated rather than enforced ("last write wins"). **"Frame fits the terminal"** used to be the other — load-bearing (overflow makes the terminal scroll/wrap and Ink repaint the whole frame, a flicker / cursor "trail") but verified only by ad-hoc scripts. It now has an owner and a guard: `viewport.ts` (`frameBudget` reserves the last row and column; `frameFits` / `frameViolations` are the invariant as a predicate), and `viewport.test.ts` asserts real emitted frames stay within the terminal across the hard cases. A geometry-invariant test, not the brittle content snapshot the project rejected. Span overlap is now the lone candidate for future hardening.
 
 ## When the diagram changes
 
-The diagram is current as of the `App`/`Racer` split and the addition of `layout.ts` as a third pure module. Things that would move it next:
+The ASCII diagram is **behind the code**: its bottom layer still shows three pure modules, but `grapheme.ts`, `review.ts`, and `viewport.ts` have since joined them — a redraw (six boxes, likely two rows) is the next refresh. Things that move the diagram:
 
 - **Adding a pure module** (e.g., `review.ts` for post-session analysis) — the bottom layer grows another box, as `layout.ts` already did.
 - **Hooks moving out of `app.tsx`** to `source/hooks/`-style files — the middle layer gains an explicit sublayer.

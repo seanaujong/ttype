@@ -2,7 +2,7 @@ import test from 'ava';
 import React from 'react';
 import {blankLineChunker, computeTypeableIndices} from './chunker.js';
 import {Racer} from './app.js';
-import {renderComponent, type RenderedApp} from './ink-harness.js';
+import {renderApp, renderComponent, type RenderedApp} from './ink-harness.js';
 
 // "alpha beta gamma", with "beta" chosen as the cloze blank (its four letters).
 // The whole passage is typeable — masking is a render overlay, not a re-scope.
@@ -61,5 +61,40 @@ test.serial('cloze render: typing a blank reveals it', async t => {
 	// cursor is past it, so styleFor reveals the real chars and the ▁s are gone.
 	await app.type('alpha beta');
 	t.is(maskedCount(app.lastFrame()), 0);
+	app.unmount();
+});
+
+// --- The flow (step 3), driven through App via the harness ---
+
+test.serial(
+	'cloze flow: finishing a run, then "c" re-drills with blanks',
+	async t => {
+		const app = renderApp({
+			text,
+			chunker: blankLineChunker,
+			isSplit: false,
+			isCloze: false,
+		});
+		// Type the whole passage to completion — the results screen shows, nothing masked.
+		await app.type('alpha beta gamma');
+		t.is(maskedCount(app.lastFrame()), 0);
+		// "c" re-drills: App remounts a fresh run with the fumbled words blanked.
+		await app.press('c');
+		t.true(maskedCount(app.lastFrame()) > 0);
+		app.unmount();
+	},
+);
+
+test.serial('cloze flow: --cloze auto-advances into the re-drill', async t => {
+	const app = renderApp({
+		text,
+		chunker: blankLineChunker,
+		isSplit: false,
+		isCloze: true,
+	});
+	// No "c" needed: completing the warm-up run drops straight into the masked re-drill.
+	await app.type('alpha beta gamma');
+	await app.tick(); // Let the auto-advance effect → remount flush.
+	t.true(maskedCount(app.lastFrame()) > 0);
 	app.unmount();
 });

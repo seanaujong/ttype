@@ -22,16 +22,19 @@ const cli = meow(
 	Options
 	  --diff   Force diff rendering (auto for .diff/.patch files)
 	  --split  Two-column diff view (+ left / typed, - right / reference); implies --diff
+	  --cloze  After the run, re-drill the words you fumbled with them blanked out
 
 	Examples
 	  $ ttype path/to/essay.txt
 	  $ git show HEAD | ttype --split
+	  $ ttype --cloze path/to/essay.txt
 `,
 	{
 		importMeta: import.meta,
 		flags: {
 			diff: {type: 'boolean'},
 			split: {type: 'boolean'},
+			cloze: {type: 'boolean'},
 		},
 	},
 );
@@ -118,6 +121,11 @@ const interactiveStdin = process.stdin.isTTY
 	: new tty.ReadStream(fs.openSync(ttyPath, 'r'));
 
 render(
-	<App text={text} chunker={chunker} isSplit={cli.flags.split ?? false} />,
+	<App
+		text={text}
+		chunker={chunker}
+		isSplit={cli.flags.split ?? false}
+		isCloze={cli.flags.cloze ?? false}
+	/>,
 	{stdin: interactiveStdin},
 );

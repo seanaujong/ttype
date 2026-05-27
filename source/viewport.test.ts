@@ -59,7 +59,7 @@ function fitsTerminal(lines: readonly string[], rows: number, columns: number) {
 // The first frame is painted synchronously by render(), so no tick is needed to
 // read it — only the keystroke/resize tests below have to await effects.
 function firstFrame(text: string, chunker: Chunker, isSplit: boolean) {
-	const app = renderApp({text, chunker, isSplit});
+	const app = renderApp({text, chunker, isSplit, isCloze: false});
 	const lines = app.frameLines();
 	app.unmount();
 	return lines;
@@ -86,7 +86,12 @@ test.serial(
 	'frame fits: the footer does not wrap at a narrow width',
 	async t => {
 		const text = 'paragraph one here\n\nparagraph two here\n\nparagraph three';
-		const app = renderApp({text, chunker: blankLineChunker, isSplit: false});
+		const app = renderApp({
+			text,
+			chunker: blankLineChunker,
+			isSplit: false,
+			isCloze: false,
+		});
 		// Resize down to 40 columns: the harness fires the 'resize' event
 		// useTerminalSize listens for, then waits for the re-render to flush.
 		await app.resize({columns: 40});
@@ -100,7 +105,12 @@ test.serial(
 	'frame fits: the frame stays within budget while typing',
 	async t => {
 		const text = 'the quick brown fox jumps over the lazy dog';
-		const app = renderApp({text, chunker: blankLineChunker, isSplit: false});
+		const app = renderApp({
+			text,
+			chunker: blankLineChunker,
+			isSplit: false,
+			isCloze: false,
+		});
 		const before = app.lastFrame();
 		// Correct keystrokes drive the engine fold through the harness's input bridge.
 		await app.type('the quick');

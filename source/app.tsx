@@ -62,8 +62,8 @@ type RacerProps = {
 	readonly viewportLineBudget: number;
 	readonly viewportColumns: number;
 	readonly isSplit: boolean;
-	readonly onSkipForward: () => void;
-	readonly onSkipBack: () => void;
+	readonly onSkipForward: (fromChunkIdx: number) => void;
+	readonly onSkipBack: (fromChunkIdx: number) => void;
 };
 
 // Lines + lookup. lineForPos closes over lineRows.
@@ -363,8 +363,12 @@ function Racer({
 
 	const {lineRows, lineForPos} = useLineLayout(text);
 
-	// Reserve the footer's rows so the content window plus footer fits the terminal.
-	const contentLineBudget = Math.max(1, viewportLineBudget - statusFooterRows);
+	// Reserve the footer's rows AND the terminal's last row — the vertical twin of
+	// usableColumns reserving the last column. A frame that fills the final row
+	// makes the terminal scroll, so Ink repaints the whole frame each keystroke
+	// (flicker) instead of updating in place; one spare row keeps it smooth.
+	const usableRows = Math.max(1, viewportLineBudget - 1);
+	const contentLineBudget = Math.max(1, usableRows - statusFooterRows);
 
 	const {focusedChunk, visibleStartLine, visibleEndLine, isInFocus} =
 		useChunkViewport({
@@ -374,6 +378,10 @@ function Racer({
 			lineForPos,
 			viewportLineBudget: contentLineBudget,
 		});
+
+	// Which chunk the cursor is in right now — skips move relative to this, not to
+	// the last skip anchor, so Tab advances from where you are after typing ahead.
+	const focusedChunkIdx = focusedChunk ? chunks.indexOf(focusedChunk) : 0;
 
 	const {styleFor, isCursor, spanKindAt} = useCharacterStyling({
 		text,
@@ -401,9 +409,9 @@ function Racer({
 		// TYPE_CHAR below.
 		if (key.tab) {
 			if (key.shift) {
-				onSkipBack();
+				onSkipBack(focusedChunkIdx);
 			} else {
-				onSkipForward();
+				onSkipForward(focusedChunkIdx);
 			}
 		} else if (key.backspace || key.delete) {
 			dispatch({kind: 'BACKSPACE'});
@@ -757,14 +765,16 @@ export default function App({text, chunker, isSplit}: Props) {
 	// survives re-renders and, when set, triggers one — unlike a plain variable.
 	const [startChunkIdx, setStartChunkIdx] = useState(0);
 
-	// Clamp into a real chunk so the counter can't run off either end (and a
-	// pointless re-render is avoided when already at the edge).
-	const skipForward = () => {
-		setStartChunkIdx(idx => Math.min(idx + 1, chunks.length - 1));
+	// Skip relative to the chunk the cursor is currently in (passed up from Racer),
+	// not the last skip anchor — so after typing forward into later chunks, Tab
+	// advances from where you are instead of jumping back. Clamped to a real chunk
+	// (and an unchanged value bails out of the re-render / remount).
+	const skipForward = (fromChunkIdx: number) => {
+		setStartChunkIdx(Math.min(fromChunkIdx + 1, chunks.length - 1));
 	};
 
-	const skipBack = () => {
-		setStartChunkIdx(idx => Math.max(idx - 1, 0));
+	const skipBack = (fromChunkIdx: number) => {
+		setStartChunkIdx(Math.max(fromChunkIdx - 1, 0));
 	};
 
 	// Re-scoped to the start chunk; Racer types over exactly this set.

@@ -10,6 +10,7 @@
 // A Map (not a Record) because xo's strictCamelCase rule rejects Unicode
 // property names on object literals.
 const keystrokeEquivalents = new Map<string, string>([
+	['\n', ' '], // Newline accepts Space: hard-wrapped prose reads as one sentence, so a Space where a line wraps is not penalized.
 	['—', '-'], // Em dash → hyphen
 	['–', '-'], // En dash → hyphen
 	['“', '"'], // Left double quote → straight

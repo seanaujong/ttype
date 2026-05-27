@@ -125,6 +125,13 @@ test('matchesExpected: NFC-normalizes so a grapheme matches regardless of encodi
 	t.false(matchesExpected('e', precomposed));
 });
 
+test('matchesExpected: a newline accepts Space (lenient hard-wrapped lines)', t => {
+	t.true(matchesExpected(' ', '\n')); // Space where a line wraps
+	t.true(matchesExpected('\n', '\n')); // Enter still works
+	t.false(matchesExpected('x', '\n')); // A real char does not
+	t.false(matchesExpected('\n', ' ')); // ...and Enter isn't accepted for a literal space
+});
+
 test('matchesExpected: undefined operands are not a match', t => {
 	t.false(matchesExpected(undefined, 'a'));
 	t.false(matchesExpected('a', undefined));

@@ -9,7 +9,11 @@ import {
 } from './chunker.js';
 import {initialState, matchesExpected, reducer} from './engine.js';
 import {
+	cellWindow,
+	columnForSource,
+	expandTabs,
 	horizontalOffset,
+	measureLine,
 	splitDiffRows,
 	visibleLineWindow,
 	type DiffLine,
@@ -30,8 +34,8 @@ const cursorColumnLookahead = 8;
 // (`-`) column takes the rest. The typed side is the protagonist, so it's wider.
 const splitTypedFraction = 0.65;
 
-// Width reserved for the ↵ marker ("↵ENTER") so a full-width line plus the
-// marker still fits on one row.
+// Display columns reserved for the ↵ marker ("↵ENTER", which string-width
+// measures as 6) so a full-width line plus the marker still fits on one row.
 const newlineMarkerWidth = 6;
 
 // Rows the status footer occupies (a 1-row top border + 1 row of text). Reserved
@@ -429,8 +433,14 @@ function Racer({
 		? Math.floor(usableColumns * splitTypedFraction)
 		: usableColumns;
 	const referenceColumnWidth = usableColumns - typedColumnWidth;
-	const cursorLineStart = lineRows[lineForPos(focusPos)]?.start ?? 0;
-	const cursorColumn = focusPos - cursorLineStart;
+	const cursorLineIdx = lineForPos(focusPos);
+	const cursorLineStart = lineRows[cursorLineIdx]?.start ?? 0;
+	// Display column of the cursor — measured, not focusPos − cursorLineStart,
+	// because a tab or wide glyph earlier on the line occupies more than one column.
+	const cursorColumn = columnForSource(
+		measureLine(lineRows[cursorLineIdx]?.line ?? '', cursorLineStart),
+		focusPos,
+	);
 	const cursorInAddedColumn =
 		isSplit && spanKindAt(cursorLineStart) === 'diff-add';
 	const colOffset = horizontalOffset(
@@ -445,33 +455,42 @@ function Racer({
 	const renderChars = (
 		line: string,
 		lineStart: number,
-		offset: number,
-		width: number,
+		offset: number, // Leftmost display column to draw (horizontal scroll position)
+		width: number, // Display columns available
 		lineInFocus: boolean,
-	) =>
-		[...line].slice(offset, offset + width).map((char, i) => {
-			const col = offset + i;
-			const pos = lineStart + col;
-			const {color, backgroundColor, dimColor} = styleFor(pos);
-			return (
-				<Text
-					key={col}
-					color={color}
-					backgroundColor={backgroundColor}
-					dimColor={!lineInFocus || dimColor}
-					inverse={isCursor(pos)}
-				>
-					{/* A tab renders at a variable, terminal-dependent width that
-					    `string-width` counts as one column, so it slips past the row's
-					    width budget and overflows. Render it as a space — display only, so
-					    the typeable set is untouched (the engine still skips tabs, so you
-					    never type the indentation), and one source char stays one column,
-					    keeping the slice/cursor math exact. One space (not the editor's
-					    wider tab stop) is what preserves that one-char-one-column mapping. */}
-					{char === '\t' ? ' ' : char}
-				</Text>
-			);
-		});
+	) => {
+		// Decompose into display cells (grapheme clusters + expanded tabs, each with
+		// its display column), then keep only the cells inside the column window.
+		// Slicing by column — not by character count — is what lets a tab or a wide
+		// glyph (CJK/emoji) take its true width without overflowing the row.
+		const {cells, leftPad} = cellWindow(
+			measureLine(line, lineStart),
+			offset,
+			width,
+		);
+		return (
+			<>
+				{leftPad > 0 && <Text>{' '.repeat(leftPad)}</Text>}
+				{cells.map(cell => {
+					// Style and cursor are keyed on the cell's source index — the same
+					// UTF-16 position the engine uses — so a multi-column cell is drawn and
+					// highlighted as one unit. A tab's cell text is already its spaces.
+					const {color, backgroundColor, dimColor} = styleFor(cell.sourceStart);
+					return (
+						<Text
+							key={cell.sourceStart}
+							color={color}
+							backgroundColor={backgroundColor}
+							dimColor={!lineInFocus || dimColor}
+							inverse={isCursor(cell.sourceStart)}
+						>
+							{cell.text}
+						</Text>
+					);
+				})}
+			</>
+		);
+	};
 
 	// A typeable line: its visible characters plus a ↵ marker at the line's
 	// terminating newline. Shown when the cursor sits there (a prompt to press
@@ -596,12 +615,12 @@ function Racer({
 					</Box>
 					{/* Reference is display-only (uniformly dim red, never the cursor), so
 					    it's one truncating <Text> rather than per-char — Ink adds the `…`.
-					    Tabs are swapped to spaces here too: `string-width` treats a tab as
-					    one column, so without this the truncation undercounts and the line
-					    overflows the column (the split-view overflow you saw). */}
+					    Tabs are expanded to spaces (expandTabs) so Ink's truncate, which
+					    measures with string-width, doesn't undercount a tab and overflow the
+					    column; CJK/emoji pass through and string-width measures them right. */}
 					<Box width={referenceColumnWidth}>
 						<Text dimColor color="red" wrap="truncate">
-							{removed ? removed.text.replace(/\t/g, ' ') : ' '}
+							{removed ? expandTabs(removed.text) : ' '}
 						</Text>
 					</Box>
 				</Box>

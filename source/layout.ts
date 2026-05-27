@@ -10,6 +10,8 @@
 // arrangement is a renderer concern, which is why this is layout, not chunking
 // (see docs/rendering.md).
 
+import stringWidth from 'string-width';
+
 export type DiffLineKind = 'removed' | 'added' | 'context' | 'meta';
 
 export type DiffLine = Readonly<{
@@ -116,4 +118,119 @@ export function splitDiffRows(lines: readonly DiffLine[]): SplitRow[] {
 	}
 
 	return rows;
+}
+
+// --- Display width -----------------------------------------------------------
+// A source character and a terminal column are not the same thing: a tab is
+// several columns, CJK and emoji are two, a combining mark is zero. The renderer
+// used to assume one char == one column, which broke tab indentation and let a
+// wide-glyph line overflow the frame. These helpers map between the two
+// coordinate systems — source UTF-16 index (what the engine uses) and display
+// column — so the renderer can scroll and slice in real columns. Pure: no Ink,
+// no engine; the only dependency is string-width for measuring a cluster.
+
+// Each tab renders as this many spaces. Fixed (not a moving tab stop) to keep
+// indentation compact and column-independent. Display-only: the engine never
+// types indentation (computeTypeableIndices skips tabs), so this changes how a
+// line *looks*, never what counts as typed.
+export const spacesPerTab = 2;
+
+// One terminal display cell: a single grapheme cluster (or an expanded tab),
+// placed in both coordinate systems. `sourceStart` is the cluster's first UTF-16
+// index — the same position styleFor / isCursor / the engine key on, so a cell
+// maps straight back to a typeable position. `col`/`width` are display columns
+// (0 for a combining mark, 1 for ASCII, 2 for CJK/emoji, spacesPerTab for a tab).
+export type LineCell = Readonly<{
+	text: string; // The glyph(s) to draw, or spaces for a tab
+	sourceStart: number; // Absolute UTF-16 index of the cluster's first code unit
+	col: number; // Left display column
+	width: number; // Display columns occupied
+}>;
+
+// Built once, not per line — constructing an Intl.Segmenter isn't free.
+const graphemeSegmenter = new Intl.Segmenter(undefined, {
+	granularity: 'grapheme',
+});
+
+// Break a source line into display cells: grapheme-segment it (so a wide glyph or
+// a multi-code-unit emoji is ONE cell), then measure each cluster's width. The
+// order matters — the width of half an emoji is meaningless, so we must segment
+// before measuring, which is exactly why a cell can span several source code
+// units. `lineStart` is the line's absolute UTF-16 offset in the full text, so
+// each cell's sourceStart lines up with cursor / styleFor positions.
+export function measureLine(
+	line: string,
+	lineStart: number,
+): readonly LineCell[] {
+	const cells: LineCell[] = [];
+	let col = 0;
+	for (const {segment, index} of graphemeSegmenter.segment(line)) {
+		const sourceStart = lineStart + index;
+		// String-width can't measure a tab (it returns 0, while a terminal expands
+		// it), so intercept tabs before measuring and give them a fixed width.
+		if (segment === '\t') {
+			cells.push({
+				text: ' '.repeat(spacesPerTab),
+				sourceStart,
+				col,
+				width: spacesPerTab,
+			});
+			col += spacesPerTab;
+		} else {
+			const width = stringWidth(segment);
+			cells.push({text: segment, sourceStart, col, width});
+			col += width;
+		}
+	}
+
+	return cells;
+}
+
+// The cells fully inside the column window [colOffset, colOffset + width). A wide
+// cell (or expanded tab) straddling *either* edge is dropped, not half-drawn — a
+// terminal can't paint half a 中, and a sliced surrogate is mojibake. `leftPad`
+// is the blank columns to emit before the first survivor when the left edge cut
+// into a wide cell, so every column after it still lines up. The right edge needs
+// no pad: a dropped straddler just leaves the last column(s) blank, as a terminal
+// would.
+export function cellWindow(
+	cells: readonly LineCell[],
+	colOffset: number,
+	width: number,
+): {cells: readonly LineCell[]; leftPad: number} {
+	const windowEnd = colOffset + width;
+	const visible = cells.filter(
+		cell => cell.col >= colOffset && cell.col + cell.width <= windowEnd,
+	);
+	const leftPad = visible.length > 0 ? visible[0]!.col - colOffset : 0;
+	return {cells: visible, leftPad};
+}
+
+// The display column a source position begins at — used to turn the cursor's
+// source index into a real column for horizontalOffset. Exact on a cluster's
+// start; a position inside a multi-unit cluster (mid-emoji) resolves to that
+// cluster's left column; a position at or past the line's end (the newline slot)
+// returns the line's full display width, where the ↵ marker sits.
+export function columnForSource(
+	cells: readonly LineCell[],
+	sourcePos: number,
+): number {
+	let containingCol = 0; // Left column of the last cluster starting at/before sourcePos
+	let endColumn = 0; // Column just past everything scanned (the end-of-line slot)
+	for (const cell of cells) {
+		if (cell.sourceStart === sourcePos) return cell.col;
+		if (cell.sourceStart > sourcePos) return containingCol;
+		containingCol = cell.col;
+		endColumn = cell.col + cell.width;
+	}
+
+	return endColumn;
+}
+
+// Expand tabs to spaces for a display-only string — the split view's reference
+// column, which Ink truncates as a single <Text> (no per-cell styling, no
+// cursor). Uses the same fixed width as measureLine so both columns indent
+// identically. CJK/emoji pass through untouched; Ink measures their width itself.
+export function expandTabs(line: string): string {
+	return line.replaceAll('\t', ' '.repeat(spacesPerTab));
 }

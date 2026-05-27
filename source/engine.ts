@@ -26,8 +26,13 @@ export function matchesExpected(
 	expected: string | undefined,
 ): boolean {
 	if (typed === undefined || expected === undefined) return false;
-	if (typed === expected) return true;
-	return keystrokeEquivalents.get(expected) === typed;
+	// Normalize to NFC so the same grapheme counts as equal regardless of
+	// encoding — e.g. a decomposed é (e + ◌́), common in macOS-stored text,
+	// matches the precomposed é a keyboard sends.
+	const typedNfc = typed.normalize('NFC');
+	const expectedNfc = expected.normalize('NFC');
+	if (typedNfc === expectedNfc) return true;
+	return keystrokeEquivalents.get(expectedNfc) === typedNfc;
 }
 
 export type State = {

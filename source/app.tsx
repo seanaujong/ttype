@@ -8,6 +8,7 @@ import {
 	type SpanKind,
 } from './chunker.js';
 import {initialState, matchesExpected, reducer} from './engine.js';
+import {clusterAt} from './grapheme.js';
 import {
 	cellWindow,
 	columnForSource,
@@ -244,7 +245,7 @@ function useCharacterStyling({
 		const ki = positionToKeystrokeIndex.get(textPos);
 		if (ki !== undefined) {
 			if (ki >= keystrokes.length) return {}; // Not yet typed
-			if (matchesExpected(keystrokes[ki], text[textPos]))
+			if (matchesExpected(keystrokes[ki], clusterAt(text, textPos)))
 				return {color: 'green'};
 			// Wrong. A red foreground is invisible on whitespace (a space has no
 			// glyph to color), so flag a mistyped space with a red background block
@@ -289,7 +290,7 @@ function useStats({
 	// don't repeat the parallel-array dance.
 	const expectedAt = (keystrokeIndex: number): string | undefined => {
 		const pos = typeableIndices[keystrokeIndex];
-		return pos === undefined ? undefined : text[pos];
+		return pos === undefined ? undefined : clusterAt(text, pos);
 	};
 
 	const elapsedMinutes =

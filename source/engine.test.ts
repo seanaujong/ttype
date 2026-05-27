@@ -115,6 +115,16 @@ test('matchesExpected: non-breaking space accepts regular space', t => {
 	t.true(matchesExpected(' ', ' '));
 });
 
+test('matchesExpected: NFC-normalizes so a grapheme matches regardless of encoding', t => {
+	const precomposed = 'é'.normalize('NFC'); // U+00E9 — one code unit
+	const decomposed = 'é'.normalize('NFD'); // E + combining acute — two
+	t.not(precomposed, decomposed); // They are different strings...
+	t.true(matchesExpected(precomposed, decomposed)); // ...but the same grapheme
+	t.true(matchesExpected(decomposed, precomposed));
+	// Typing the bare base letter is still wrong — the accent is part of the unit.
+	t.false(matchesExpected('e', precomposed));
+});
+
 test('matchesExpected: undefined operands are not a match', t => {
 	t.false(matchesExpected(undefined, 'a'));
 	t.false(matchesExpected('a', undefined));

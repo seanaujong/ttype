@@ -11,6 +11,7 @@
 // (see docs/rendering.md).
 
 import stringWidth from 'string-width';
+import {segmentGraphemes} from './grapheme.js';
 
 export type DiffLineKind = 'removed' | 'added' | 'context' | 'meta';
 
@@ -147,11 +148,6 @@ export type LineCell = Readonly<{
 	width: number; // Display columns occupied
 }>;
 
-// Built once, not per line — constructing an Intl.Segmenter isn't free.
-const graphemeSegmenter = new Intl.Segmenter(undefined, {
-	granularity: 'grapheme',
-});
-
 // Break a source line into display cells: grapheme-segment it (so a wide glyph or
 // a multi-code-unit emoji is ONE cell), then measure each cluster's width. The
 // order matters — the width of half an emoji is meaningless, so we must segment
@@ -164,7 +160,7 @@ export function measureLine(
 ): readonly LineCell[] {
 	const cells: LineCell[] = [];
 	let col = 0;
-	for (const {segment, index} of graphemeSegmenter.segment(line)) {
+	for (const {segment, index} of segmentGraphemes(line)) {
 		const sourceStart = lineStart + index;
 		// String-width can't measure a tab (it returns 0, while a terminal expands
 		// it), so intercept tabs before measuring and give them a fixed width.

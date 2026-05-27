@@ -1,0 +1,13 @@
+{
+	"name": "emoji is skipped, not typed (cursor jumps a -> b)",
+	"text": "a😀b",
+	"events": [
+		{"kind": "TYPE_CHAR", "char": "a", "at": 1000},
+		{"kind": "TYPE_CHAR", "char": "b", "at": 1100}
+	],
+	"expected": {
+		"keystrokes": ["a", "b"],
+		"startedAt": 1000,
+		"endedAt": 1100
+	}
+}

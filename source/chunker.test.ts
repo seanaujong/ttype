@@ -360,3 +360,29 @@ test('computeTypeableIndices subtracts cosmetic spans from chunks', t => {
 	t.false(indices.some(i => text[i] === '+' && i > 0)); // No '+' content prefix
 	t.false(indices.some(i => text[i] === '-' && i > 0)); // No '-' content prefix
 });
+
+// Grapheme-cluster typeable set: one index per cluster (so a multi-code-unit
+// accent is one cursor stop), and emoji/flags/symbols are skipped as unkeyable.
+
+test('computeTypeableIndices: an emoji is skipped (cursor jumps past it)', t => {
+	// 😀 is pictographic and two code units at index 1, so it's skipped; only a
+	// and b are typeable, and b sits at index 3 (after the surrogate pair).
+	t.deepEqual(computeTypeableIndices('a😀b'), [0, 3]);
+});
+
+test('computeTypeableIndices: a flag (regional indicators) is skipped', t => {
+	// The flag is two regional indicators (four code units); only x stays, at 4.
+	t.deepEqual(computeTypeableIndices('🇯🇵x'), [4]);
+});
+
+test('computeTypeableIndices: an accented letter is a single typeable cluster', t => {
+	// Decomposed 'café' (e + combining acute, five code units) → four clusters,
+	// so the é is one typeable stop at index 3, not two.
+	const cafe = 'café'.normalize('NFD');
+	t.is(cafe.length, 5);
+	t.deepEqual(computeTypeableIndices(cafe), [0, 1, 2, 3]);
+});
+
+test('computeTypeableIndices: CJK stays typeable', t => {
+	t.deepEqual(computeTypeableIndices('中a'), [0, 1]);
+});

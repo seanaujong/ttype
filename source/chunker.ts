@@ -1,3 +1,5 @@
+import {segmentGraphemes} from './grapheme.js';
+
 export type ChunkKind =
 	| 'prose'
 	| 'code'
@@ -439,6 +441,12 @@ const untypeableChars = new Set([
 	'…', // … horizontal ellipsis (no 1:1 — `...` is three keystrokes)
 ]);
 
+// Emoji, flags, and pictographic symbols render but can't be keyed on a normal
+// keyboard, so they're skipped from the typeable set (the cursor jumps past),
+// the same treatment as untypeableChars. Letters (including accented) and CJK
+// aren't pictographic, so they stay typeable — one cluster, one keystroke.
+const skippableCluster = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
+
 function computeBaseTypeableIndices(text: string): readonly number[] {
 	const indices: number[] = [];
 	let pos = 0;
@@ -460,12 +468,15 @@ function computeBaseTypeableIndices(text: string): readonly number[] {
 		// finding the first non-leading-whitespace char in this line, if any
 		const firstContent = line.search(/[^ \t]/);
 		if (firstContent !== -1) {
-			for (let i = firstContent; i < line.length; i++) {
-				// Skip mid-line tab whitespace
-				if (line[i] === '\t') continue;
-				// Skip unmappable typographic chars (see untypeableChars).
-				if (untypeableChars.has(line[i]!)) continue;
-				indices.push(pos + i);
+			// One typeable index per grapheme cluster (so a multi-code-unit accent
+			// like e+◌́ is a single cursor stop), not per UTF-16 code unit.
+			for (const {segment, index} of segmentGraphemes(line)) {
+				if (index < firstContent) continue; // Leading whitespace
+				if (segment === '\t') continue; // Mid-line tab whitespace
+				// Skip unmappable typographic chars and unkeyable clusters.
+				if (untypeableChars.has(segment)) continue;
+				if (skippableCluster.test(segment)) continue;
+				indices.push(pos + index);
 			}
 		}
 

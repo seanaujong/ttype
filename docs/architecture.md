@@ -20,57 +20,55 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 │ argv  ─▶  meow.input[0]  ─▶  resolveSourceText  ─▶  text                     │
 │ argv  ─▶  meow.flags     ─▶  selectChunker      ─▶  chunker                  │
 │ argv  ─▶  meow.flags.split                      ─▶  isSplit                  │
-│ env   ─▶  process.stdout.rows                   ─▶  viewportLineBudget       │
-│ env   ─▶  process.stdout.columns                ─▶  viewportColumns          │
+│ (terminal size is read live in app.tsx, not passed as props)                 │
 │                                                                              │
-│     <App text chunker viewportLineBudget viewportColumns isSplit />          │
+│     <App text chunker isSplit />                                             │
 └───────────────────────────────────────┬──────────────────────────────────────┘
                                         │ props
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ app.tsx                                                 (React composition)  │
 │                                                                              │
-│ ── App: the scope shell — owns which chunk the run starts on ──              │
-│                                                                              │
-│ chunker(text)                          ──▶  chunks         (memoized)        │
-│ computeTypeableIndices(text, chunks)   ──▶  allTypeableIndices               │
-│ useState                               ──▶  startChunkIdx                    │
-│ typeableIndicesFromChunk(…, startChunkIdx) ──▶ typeableIndices (scoped)      │
-│                                                                              │
-│ <Racer key={startChunkIdx} …/>   — key change ⇒ remount ⇒ run resets         │
-│      │  scoped typeableIndices                                               │
+│ ── App: scope shell — owns which chunk the run starts on ──                  │
+│ chunker(text) ──▶ chunks   ·   computeTypeableIndices ──▶ all idx            │
+│ useState ──▶ startChunkIdx   ·   typeableIndicesFromChunk ──▶ scope          │
+│ <Racer key={startChunkIdx} …/>  — key change ⇒ remount ⇒ reset               │
+│      │  scoped typeable indices                                              │
 │      ▼                                                                       │
-│ ── Racer: one typing session over text[startChunk … end-of-text] ──          │
-│                                                                              │
-│ useReducer(reducer, init = () => initialState(text, typeableIndices))        │
-│                                        ──▶  [state, dispatch]                │
-│                                                                              │
-│ useLineLayout(text)       ──▶  lineRows, lineForPos                          │
-│ useChunkViewport({…})     ──▶  focusedChunk, visibleStart/EndLine, …         │
-│ useCharacterStyling({…})  ──▶  styleFor, isCursor, spanKindAt                │
-│ useStats({…})             ──▶  progress, liveWpm, accuracy, chunkPos         │
-│                                                                              │
-│ useInput  ─▶  Tab/Shift+Tab → onSkip* (to App)   ·   else → dispatch         │
-│ renderUnifiedView() / renderSplitView()  ──▶  <Box> … </Box>                 │
-└───────────┬───────────────────────────┬───────────────────────────┬──────────┘
-            │                           │                           │
-            ▼                           ▼                           ▼
+│ ── Racer: one typing session ──                                              │
+│ useTerminalSize() ──▶ live rows/cols ──▶ frameBudget ──▶ budget              │
+│ useReducer(reducer) ──▶ state { text, keystrokes, events, timing }           │
+│ useLineLayout · useChunkViewport · useCharacterStyling · useStats            │
+│ useInput ─▶ Tab→skip · Backspace · Esc→reset · char→TYPE_CHAR                │
+│ state.endedAt ? results panel (review.ts) : unified / split view             │
+└───────────────────────────────────────┬──────────────────────────────────────┘
+                                        │ imports
+                                        ▼
+───────────── pure modules — no Ink · no React · no upward imports ─────────────
 ┌──────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
 │ engine.ts      (pure)│    │ chunker.ts     (pure)│    │ layout.ts      (pure)│
 │                      │    │                      │    │                      │
-│ State / Action       │    │ Chunk / Span         │    │ DiffLine / SplitRow  │
-│ reducer              │    │ ChunkKind/SpanKind   │    │ visibleLineWindow    │
-│ initialState         │    │ blankLine/diff/md    │    │ horizontalOffset     │
-│ replay               │    │ computeTypeableIdx   │    │ splitDiffRows        │
-│ matchesExpected      │    │ typeableIdxFromChunk │    │                      │
+│ State / Action       │    │ Chunk/Span/kinds     │    │ measureLine          │
+│ reducer              │    │ blankLine/diff/md    │    │ cellWindow           │
+│ initialState         │    │ computeTypeableIdx   │    │ visibleLineWindow    │
+│ replay               │    │ typeableIdxFromChunk │    │ horizontalOffset     │
+│ matchesExpected      │    │                      │    │ splitDiffRows        │
+└──────────────────────┘    └──────────────────────┘    └──────────────────────┘
+
+┌──────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
+│ grapheme.ts    (pure)│    │ review.ts      (pure)│    │ viewport.ts    (pure)│
+│                      │    │                      │    │                      │
+│ segmentGraphemes     │    │ analyzeByWord        │    │ frameBudget          │
+│ clusterAt            │    │ slowestWords         │    │ frameFits            │
+│                      │    │ mostMistypedWords    │    │ frameViolations      │
 └──────────────────────┘    └──────────────────────┘    └──────────────────────┘
 ```
 
 ## How each layer separates
 
-**`cli.tsx`** is the only file that touches the environment: file paths, stdin, terminal size, command-line flags. It resolves those into `<App />`'s props — the text, the chunker, the viewport budget and width, and the split flag — and hands them over. If you ran ttype in a non-CLI context (e.g., a web demo), only this file would need a sibling.
+**`cli.tsx`** is the only file that touches the environment: file paths, stdin, terminal size, command-line flags. It resolves those into `<App />`'s props — the text, the chunker, and the split flag (the terminal size is read live inside `app.tsx` via `useTerminalSize`, not passed as a prop) — and hands them over. If you ran ttype in a non-CLI context (e.g., a web demo), only this file would need a sibling.
 
-**`app.tsx`** composes pure modules. It knows about all the layers but doesn't _contain_ their logic — it imports `engine.ts`, `chunker.ts`, and `layout.ts`, calls their functions, threads state through React hooks. It splits into two components: **`App`** is a thin scope shell — it owns `startChunkIdx` (which chunk the run starts on) and re-scopes the typeable indices when `Tab`/`Shift+Tab` move it. **`Racer`** is one typing session over that scope: the engine fold plus the four custom hooks (`useLineLayout`, `useChunkViewport`, `useCharacterStyling`, `useStats`) that bundle related derivations to keep the component a short composition. Skipping a chunk changes `Racer`'s `key`, which remounts it — that remount _is_ the run reset, so the engine itself needs no "rescope" action.
+**`app.tsx`** composes pure modules. It knows about all the layers but doesn't _contain_ their logic — it imports the pure modules (`engine`, `chunker`, `layout`, `grapheme`, `review`, `viewport`), calls their functions, threads state through React hooks. It splits into two components: **`App`** is a thin scope shell — it owns `startChunkIdx` (which chunk the run starts on) and re-scopes the typeable indices when `Tab`/`Shift+Tab` move it. **`Racer`** is one typing session over that scope: the engine fold plus the four custom hooks (`useLineLayout`, `useChunkViewport`, `useCharacterStyling`, `useStats`) that bundle related derivations to keep the component a short composition. Skipping a chunk changes `Racer`'s `key`, which remounts it — that remount _is_ the run reset, so the engine itself needs no "rescope" action.
 
 **`engine.ts`** is a pure state machine. Inputs: text + typeable indices + an action. Output: new state. No imports, no I/O, no React, no rendering. Testable by feeding actions and asserting on returned state.
 
@@ -171,7 +169,7 @@ One soft spot remains, named honestly: **span overlap** is tolerated rather than
 
 ## When the diagram changes
 
-The ASCII diagram is **behind the code**: its bottom layer still shows three pure modules, but `grapheme.ts`, `review.ts`, and `viewport.ts` have since joined them — a redraw (six boxes, likely two rows) is the next refresh. Things that move the diagram:
+The diagram is current as of the six pure modules (engine, chunker, layout, grapheme, review, viewport), the `App`/`Racer` split, and the live-`useTerminalSize` size. Things that move it next:
 
 - **Adding a pure module** (e.g., `review.ts` for post-session analysis) — the bottom layer grows another box, as `layout.ts` already did.
 - **Hooks moving out of `app.tsx`** to `source/hooks/`-style files — the middle layer gains an explicit sublayer.

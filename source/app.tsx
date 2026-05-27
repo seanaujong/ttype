@@ -114,7 +114,11 @@ function useChunkViewport({
 // text. Because it's a Record over the SpanKind union, adding a new kind (e.g.
 // markdown inline-code) won't compile until it has a visual here — the compiler
 // enforces that every span a chunker can emit is drawable.
-type SpanVisual = {color?: string; dimColor?: boolean};
+type SpanVisual = {
+	color?: string;
+	backgroundColor?: string;
+	dimColor?: boolean;
+};
 
 const spanVisuals: Record<SpanKind, SpanVisual> = {
 	'diff-add': {color: 'green'}, // Leading '+' marker; the added content is typed
@@ -180,9 +184,14 @@ function useCharacterStyling({
 		const ki = positionToKeystrokeIndex.get(textPos);
 		if (ki !== undefined) {
 			if (ki >= keystrokes.length) return {}; // Not yet typed
-			return {
-				color: matchesExpected(keystrokes[ki], text[textPos]) ? 'green' : 'red',
-			};
+			if (matchesExpected(keystrokes[ki], text[textPos]))
+				return {color: 'green'};
+			// Wrong. A red foreground is invisible on whitespace (a space has no
+			// glyph to color), so flag a mistyped space with a red background block
+			// instead — otherwise an error there silently nicks accuracy.
+			return /\s/.test(text[textPos]!)
+				? {backgroundColor: 'red'}
+				: {color: 'red'};
 		}
 
 		const kind = positionToSpanKind.get(textPos);
@@ -337,12 +346,13 @@ export default function App({
 					<Text key={lineIndex}>
 						{[...line].map((char, col) => {
 							const pos = start + col;
-							const {color, dimColor} = styleFor(pos);
+							const {color, backgroundColor, dimColor} = styleFor(pos);
 							return (
 								<Text
 									// eslint-disable-next-line react/no-array-index-key -- per-character list within a stable line; column is the natural identity
 									key={col}
 									color={color}
+									backgroundColor={backgroundColor}
 									dimColor={!lineInFocus || dimColor}
 									inverse={isCursor(pos)}
 								>

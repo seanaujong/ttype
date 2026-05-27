@@ -145,6 +145,41 @@ test('RESET clears keystrokes and timestamps, preserves text', t => {
 	t.is(reset.text, 'hello');
 });
 
+test('reducer records every handled action in the event log', t => {
+	const a = reducer(makeInitial('hi'), {
+		kind: 'TYPE_CHAR',
+		char: 'h',
+		at: 1000,
+	});
+	const b = reducer(a, {kind: 'TYPE_CHAR', char: 'x', at: 1100});
+	const c = reducer(b, {kind: 'BACKSPACE'});
+	t.deepEqual(c.events, [
+		{kind: 'TYPE_CHAR', char: 'h', at: 1000},
+		{kind: 'TYPE_CHAR', char: 'x', at: 1100},
+		{kind: 'BACKSPACE'},
+	]);
+});
+
+test('RESET clears the event log', t => {
+	const typed = reducer(makeInitial('hi'), {
+		kind: 'TYPE_CHAR',
+		char: 'h',
+		at: 1000,
+	});
+	t.is(typed.events.length, 1);
+	t.deepEqual(reducer(typed, {kind: 'RESET'}).events, []);
+});
+
+test('a capped TYPE_CHAR does not append to the log', t => {
+	const done = reducer(
+		reducer(makeInitial('hi'), {kind: 'TYPE_CHAR', char: 'h', at: 1000}),
+		{kind: 'TYPE_CHAR', char: 'i', at: 1100},
+	);
+	const capped = reducer(done, {kind: 'TYPE_CHAR', char: '!', at: 1200});
+	t.is(capped, done); // Same reference (no-op path) — and so the same 2-event log
+	t.is(capped.events.length, 2);
+});
+
 const fixturesDir = new URL('fixtures/', import.meta.url);
 
 for (const file of fs

@@ -20,6 +20,7 @@ import {
 	type DiffLine,
 	type DiffLineKind,
 } from './layout.js';
+import {analyzeByWord, mostMistypedWords, slowestWords} from './review.js';
 
 // Lines kept below the cursor when a chunk is taller than the viewport, so you
 // can read a little ahead. Small on purpose: anything below the cursor wraps
@@ -631,13 +632,62 @@ function Racer({
 	// begun — skipping resets, so it's a before-you-start move. It then steps out
 	// of the way once typing is underway.
 	const showSkipHint = keystrokes.length === 0 && chunks.length > 1;
+	const done = endedAt !== undefined;
+
+	// On completion, swap the racer for a results panel: slowest and most-mistyped
+	// words from a second fold over the keystroke log (review.ts).
+	const renderResults = () => {
+		const stats = analyzeByWord(text, typeableIndices, state.events);
+		const slow = slowestWords(stats, 3);
+		const missed = mostMistypedWords(stats, 3);
+		return (
+			<Box flexDirection="column">
+				<Text>
+					<Text bold color="green">
+						Done!
+					</Text>
+					{`  ${liveWpm} WPM · ${accuracy}% accuracy`}
+				</Text>
+				{slow.length > 0 && (
+					<Box flexDirection="column" marginTop={1}>
+						<Text dimColor>Slowest</Text>
+						{slow.map(stat => (
+							<Text key={stat.start} wrap="truncate">
+								{`  ${stat.word} — ${Math.round(
+									stat.totalMs / stat.typeableCount,
+								)}ms/char`}
+							</Text>
+						))}
+					</Box>
+				)}
+				{missed.length > 0 && (
+					<Box flexDirection="column" marginTop={1}>
+						<Text dimColor>Mistyped most</Text>
+						{missed.map(stat => (
+							<Text key={stat.start} wrap="truncate">
+								{`  ${stat.word} — ${stat.wrong} wrong`}
+							</Text>
+						))}
+					</Box>
+				)}
+				{slow.length === 0 && missed.length === 0 && (
+					<Text dimColor>Clean run.</Text>
+				)}
+			</Box>
+		);
+	};
+
+	const renderBody = () => {
+		if (done) return renderResults();
+		return isSplit ? renderSplitView() : renderUnifiedView();
+	};
 
 	return (
 		// Width={usableColumns} keeps the whole frame — including the full-width
 		// footer border — one column short of the terminal, so nothing lands in the
 		// last cell and auto-wraps.
 		<Box flexDirection="column" width={usableColumns}>
-			{isSplit ? renderSplitView() : renderUnifiedView()}
+			{renderBody()}
 			<Box
 				borderTop
 				borderStyle="single"
@@ -648,9 +698,15 @@ function Racer({
 				{/* truncate so the footer is always one line: if it wraps, the frame
 				    grows past the rows we reserved for it and overflows the terminal. */}
 				<Text dimColor wrap="truncate">
-					{chunkPos && `${chunkPos}  ·  `}
-					{progress} keystrokes · {liveWpm} WPM · {accuracy}% accuracy
-					{showSkipHint && '  ·  ⇥/⇧⇥ skip chunk'}
+					{done ? (
+						'Esc retype · Ctrl+C quit'
+					) : (
+						<>
+							{chunkPos && `${chunkPos}  ·  `}
+							{progress} keystrokes · {liveWpm} WPM · {accuracy}% accuracy
+							{showSkipHint && '  ·  ⇥/⇧⇥ skip chunk'}
+						</>
+					)}
 				</Text>
 			</Box>
 		</Box>

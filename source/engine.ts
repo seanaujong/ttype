@@ -41,6 +41,10 @@ export type State = {
 	keystrokes: string[];
 	startedAt: number | undefined;
 	endedAt: number | undefined;
+	// The canonical keystroke log. `keystrokes`/timing are the derived hot path;
+	// this is the raw record a "second fold" (review.ts) replays for per-word
+	// timing and accuracy. See docs/engine-design.md.
+	events: readonly Action[];
 };
 
 export type Action =
@@ -65,6 +69,7 @@ export function initialState(
 		keystrokes: [],
 		startedAt: undefined,
 		endedAt: undefined,
+		events: [],
 	};
 }
 
@@ -85,6 +90,7 @@ export function reducer(state: State, action: Action): State {
 					nextKeystrokes.length === state.typeableIndices.length
 						? action.at
 						: state.endedAt,
+				events: [...state.events, action],
 			};
 		}
 
@@ -92,17 +98,20 @@ export function reducer(state: State, action: Action): State {
 			return {
 				...state,
 				keystrokes: state.keystrokes.slice(0, -1),
+				events: [...state.events, action],
 			};
 		}
 
 		case 'RESET': {
 			// Preserve text and typeableIndices (both functions of the source,
-			// unchanged by RESET); clear keystroke/timing state.
+			// unchanged by RESET); clear keystroke/timing state and the log — a
+			// restart is a fresh attempt, so review never sees a pre-reset run.
 			return {
 				...state,
 				keystrokes: [],
 				startedAt: undefined,
 				endedAt: undefined,
+				events: [],
 			};
 		}
 

@@ -32,7 +32,7 @@ The keystroke log isn't a side-output of the engine. It is the engine's input, a
 function reducer(state: State, action: Action): State;
 ```
 
-- **State** = `{ text, typeableIndices, keystrokes, startedAt, endedAt }`. No UI, no derived counters. `typeableIndices` is a readonly array of source positions the cursor can rest on (leading whitespace, tabs, and blank lines are skipped); `keystrokes` is parallel to `typeableIndices`, containing what the user typed at each visited position.
+- **State** = `{ text, typeableIndices, keystrokes, startedAt, endedAt, events }`. No UI, no derived counters. `typeableIndices` is a readonly array of source positions the cursor can rest on (leading whitespace, tabs, and blank lines are skipped); `keystrokes` is parallel to `typeableIndices`, containing what the user typed at each visited position. `events` is the retained action log — the canonical record a second fold (`source/review.ts`) replays for per-word stats; `keystrokes`/timing are its derived hot path. (`RESET` clears `events`; a restart is a fresh attempt.)
 - **Action** = a discriminated union: `{ kind: 'TYPE_CHAR', char, at } | { kind: 'BACKSPACE' } | { kind: 'RESET' }`. Time is _in_ the action; the engine never reads a clock.
 - **Pure** — same `(state, action)` returns the same next state. No side effects.
 
@@ -85,7 +85,7 @@ The fixture runner scans the fixture directory, registers one ava test per JSON 
 
 - **Time-travel debugging.** "What did state look like at action 47?" → `actions.slice(0, 47).reduce(reducer, initialState(text))`. Useful any time something looks wrong on screen.
 - **Bug reports as files.** A user runs `ttype --record foo.json`, finishes a session, sends the file. We replay; we see exactly what they saw. No "can you reproduce" back-and-forth.
-- **Review is just a second fold.** Once with `reducer` to get final state; once with a review-specific reducer to compute stats. Same input, different views.
+- **Review is just a second fold.** Once with `reducer` to get final state; once with a review-specific fold to compute stats. Same input, different views. Built: `source/review.ts`'s `analyzeByWord(text, typeableIndices, events)` folds `state.events` into per-word timing and accuracy for the end-of-run results.
 - **Persistence is trivial.** Sessions are 100% described by `{ text, actions }`. No engine internals leak into the saved file.
 - **Engine tests don't need Ink.** The engine is a TS module that imports nothing UI-related. Tests are plain function calls.
 

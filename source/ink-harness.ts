@@ -74,10 +74,18 @@ export function renderApp(
 	props: AppProps,
 	options: {tickMs?: number} = {},
 ): RenderedApp {
+	return renderComponent(React.createElement(App, props), options);
+}
+
+// Generic variant: mount any element with the same input/size shims. Lets a test
+// drive a single component directly (e.g. Racer with a cloze blank set) rather
+// than through App. renderApp is just this with <App> pre-wired.
+export function renderComponent(
+	element: React.ReactElement,
+	options: {tickMs?: number} = {},
+): RenderedApp {
 	const tickMs = options.tickMs ?? 60;
-	const {lastFrame, stdin, stdout, unmount} = render(
-		React.createElement(App, props),
-	);
+	const {lastFrame, stdin, stdout, unmount} = render(element);
 
 	const inputStdin = stdin as unknown as MockStdin;
 	const sizedStdout = stdout as unknown as MockStdout;

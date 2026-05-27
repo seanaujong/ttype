@@ -47,6 +47,14 @@ const newlineMarkerWidth = 6;
 // below the last (a "trail" of the cursor line).
 const statusFooterRows = 2;
 
+// The placeholder drawn over a cloze blank that hasn't been typed yet, repeated to
+// the cell's display width so masking a wide glyph (CJK) keeps columns aligned.
+const maskGlyph = '▁';
+
+// Shared empty blank set so the no-cloze default is a stable reference (a fresh
+// `new Set()` per render would needlessly churn anything keyed on it).
+const emptyBlanked: ReadonlySet<number> = new Set();
+
 type Props = {
 	readonly text: string;
 	readonly chunker: Chunker;
@@ -65,6 +73,10 @@ type RacerProps = {
 	readonly isSplit: boolean;
 	readonly onSkipForward: (fromChunkIdx: number) => void;
 	readonly onSkipBack: (fromChunkIdx: number) => void;
+	// Cloze: typeable positions to hide behind ▁ until typed. Optional — a normal
+	// run passes nothing (no blanks). The set is a render-only overlay; the engine
+	// and typeableIndices are unchanged (you still type the whole passage).
+	readonly blanked?: ReadonlySet<number>;
 };
 
 // Lines + lookup. lineForPos closes over lineRows.
@@ -206,12 +218,14 @@ function useCharacterStyling({
 	typeableIndices,
 	chunks,
 	cursorPos,
+	blanked,
 }: {
 	readonly text: string;
 	readonly keystrokes: string[];
 	readonly typeableIndices: readonly number[];
 	readonly chunks: Chunk[];
 	readonly cursorPos: number | undefined;
+	readonly blanked: ReadonlySet<number>;
 }) {
 	// Typeable text position → its keystroke index (inverse of the parallel array).
 	const positionToKeystrokeIndex = useMemo(() => {
@@ -265,7 +279,17 @@ function useCharacterStyling({
 
 	const isCursor = (textPos: number) => textPos === cursorPos;
 
-	return {styleFor, isCursor, spanKindAt};
+	// A cloze blank still waiting to be typed: hide its glyph so the user recalls
+	// it. Only positions at or ahead of the cursor are masked — once typed (ki <
+	// keystrokes.length) styleFor reveals the real char green/red. Blanked
+	// positions come from the typeable set, so ki is always defined here.
+	const isMasked = (textPos: number): boolean => {
+		if (!blanked.has(textPos)) return false;
+		const ki = positionToKeystrokeIndex.get(textPos);
+		return ki !== undefined && ki >= keystrokes.length;
+	};
+
+	return {styleFor, isCursor, spanKindAt, isMasked};
 }
 
 // Session-meta derivations for the status row.
@@ -341,7 +365,7 @@ function useStats({
 // the styling, the render. App remounts Racer (via a changing `key`) whenever the
 // scope changes, so the lazy initializer below re-runs and the engine starts
 // fresh over the new typeableIndices. That remount IS the "reset on skip".
-function Racer({
+export function Racer({
 	text: initialText,
 	chunks,
 	typeableIndices,
@@ -350,6 +374,7 @@ function Racer({
 	isSplit,
 	onSkipForward,
 	onSkipBack,
+	blanked = emptyBlanked,
 }: RacerProps) {
 	// UseReducer's three-arg form: lazy initializer runs once per mount with the
 	// (already scoped) typeable indices App passed in. Two-arg form can't see props.
@@ -387,12 +412,13 @@ function Racer({
 	// the last skip anchor, so Tab advances from where you are after typing ahead.
 	const focusedChunkIdx = focusedChunk ? chunks.indexOf(focusedChunk) : 0;
 
-	const {styleFor, isCursor, spanKindAt} = useCharacterStyling({
+	const {styleFor, isCursor, spanKindAt, isMasked} = useCharacterStyling({
 		text,
 		keystrokes,
 		typeableIndices,
 		chunks,
 		cursorPos,
+		blanked,
 	});
 
 	const {progress, liveWpm, accuracy, chunkPos} = useStats({
@@ -478,6 +504,21 @@ function Racer({
 			<>
 				{leftPad > 0 && <Text>{' '.repeat(leftPad)}</Text>}
 				{cells.map(cell => {
+					// A cloze blank not yet reached: draw ▁ across the cell's width instead
+					// of the glyph, so the word is hidden until recalled. Still shows the
+					// cursor (inverse) so you know where to type.
+					if (isMasked(cell.sourceStart)) {
+						return (
+							<Text
+								key={cell.sourceStart}
+								dimColor
+								inverse={isCursor(cell.sourceStart)}
+							>
+								{maskGlyph.repeat(cell.width)}
+							</Text>
+						);
+					}
+
 					// Style and cursor are keyed on the cell's source index — the same
 					// UTF-16 position the engine uses — so a multi-column cell is drawn and
 					// highlighted as one unit. A tab's cell text is already its spaces.

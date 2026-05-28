@@ -2,7 +2,7 @@
 
 Patterns we use in ttype to make the engine **hard to misuse** and **easy to refactor**. The goal — borrowed from Yaron Minsky's phrasing in the OCaml community — is to **make illegal states unrepresentable**. If a state shouldn't exist, the compiler should refuse to let you write it down. The bug you can't compile is the bug that never ships.
 
-These conventions pair with the event-sourced engine in [engine-design.md](engine-design.md): pure functions over immutable state are easy to reason about, easy to test, and easy to replay. Mutability undoes most of that.
+These conventions pair with the event-sourced engine: pure functions over immutable state are easy to reason about, easy to test, and easy to replay. Mutability undoes most of that.
 
 ## At a glance
 
@@ -307,9 +307,3 @@ When you write or review engine code, run through this list:
 - [ ] If I added a new event kind / char state / cursor variant, did the compiler force me to handle it everywhere? If not, an `exhaustive` check is missing somewhere.
 - [ ] Does every escape hatch (`useMemo`, `useEffect`, `as`, `!`, `eslint-disable`) carry a one-line "why" comment immediately above it?
 - [ ] Are boolean React props named with an `is*` or `has*` prefix? (`isClozeRun`, not `clozeRun`; `isAutoCloze`, not `autoCloze`.) The xo `react/boolean-prop-naming` rule enforces this and the gate will fail without it.
-
-## See also
-
-- [engine-design.md](engine-design.md) — the event-sourced architecture these conventions support.
-- [scenarios.md](scenarios.md) — the test cases that exercise the engine these conventions help make correct.
-- [../CLAUDE.md](../CLAUDE.md) — project-level validation workflows; the "type-level invariants" entry there cross-references this doc.

@@ -15,33 +15,35 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ cli.tsx                                            (adapter / orchestrator)  │
+│ cli.tsx                                              (adapter / orchestrator)│
 │                                                                              │
 │ argv  ─▶  meow.input[0]  ─▶  resolveSourceText  ─▶  text                     │
 │ argv  ─▶  meow.flags     ─▶  selectChunker      ─▶  chunker                  │
 │ argv  ─▶  meow.flags.split                      ─▶  isSplit                  │
+│ argv  ─▶  meow.flags.cloze                      ─▶  isCloze                  │
 │ (terminal size is read live in app.tsx, not passed as props)                 │
 │                                                                              │
-│     <App text chunker isSplit />                                             │
-└───────────────────────────────────────┬──────────────────────────────────────┘
+│     <App text chunker isSplit isCloze />                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
                                         │ props
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ app.tsx                                                 (React composition)  │
+│ app.tsx                                                   (React composition)│
 │                                                                              │
-│ ── App: scope shell — owns which chunk the run starts on ──                  │
+│ ── App: scope shell — owns the start chunk + cloze re-drill scope ──         │
 │ chunker(text) ──▶ chunks   ·   computeTypeableIndices ──▶ all idx            │
-│ useState ──▶ startChunkIdx   ·   typeableIndicesFromChunk ──▶ scope          │
-│ <Racer key={startChunkIdx} …/>  — key change ⇒ remount ⇒ reset               │
-│      │  scoped typeable indices                                              │
+│ useState ──▶ startChunkIdx, clozeTypeable   ·   re-scope ──▶ typeable        │
+│ <Racer key={startChunkIdx}-{clozeAttempt} …/> — remount ⇒ reset              │
+│      │  scoped typeable indices  ·  isClozeRun                               │
 │      ▼                                                                       │
 │ ── Racer: one typing session ──                                              │
 │ useTerminalSize() ──▶ live rows/cols ──▶ frameBudget ──▶ budget              │
 │ useReducer(reducer) ──▶ state { text, keystrokes, events, timing }           │
 │ useLineLayout · useChunkViewport · useCharacterStyling · useStats            │
 │ useInput ─▶ Tab→skip · Backspace · Esc→reset · char→TYPE_CHAR                │
-│ state.endedAt ? results panel (review.ts) : unified / split view             │
-└───────────────────────────────────────┬──────────────────────────────────────┘
+│ isClozeRun ──▶ untyped typeable rendered as ▁ (cloze blanks)                 │
+│ state.endedAt ? results (review.ts) + cloze re-drill : unified / split       │
+└──────────────────────────────────────────────────────────────────────────────┘
                                         │ imports
                                         ▼
 ───────────── pure modules — no Ink · no React · no upward imports ─────────────
@@ -61,6 +63,7 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 │ segmentGraphemes     │    │ analyzeByWord        │    │ frameBudget          │
 │ clusterAt            │    │ slowestWords         │    │ frameFits            │
 │                      │    │ mostMistypedWords    │    │ frameViolations      │
+│                      │    │ clozeBlanks          │    │                      │
 └──────────────────────┘    └──────────────────────┘    └──────────────────────┘
 ```
 
@@ -68,7 +71,7 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 
 **`cli.tsx`** is the only file that touches the environment: file paths, stdin, terminal size, command-line flags. It resolves those into `<App />`'s props — the text, the chunker, and the split flag (the terminal size is read live inside `app.tsx` via `useTerminalSize`, not passed as a prop) — and hands them over. If you ran ttype in a non-CLI context (e.g., a web demo), only this file would need a sibling.
 
-**`app.tsx`** composes pure modules. It knows about all the layers but doesn't _contain_ their logic — it imports the pure modules (`engine`, `chunker`, `layout`, `grapheme`, `review`, `viewport`), calls their functions, threads state through React hooks. It splits into two components: **`App`** is a thin scope shell — it owns `startChunkIdx` (which chunk the run starts on) and re-scopes the typeable indices when `Tab`/`Shift+Tab` move it. **`Racer`** is one typing session over that scope: the engine fold plus the four custom hooks (`useLineLayout`, `useChunkViewport`, `useCharacterStyling`, `useStats`) that bundle related derivations to keep the component a short composition. Skipping a chunk changes `Racer`'s `key`, which remounts it — that remount _is_ the run reset, so the engine itself needs no "rescope" action.
+**`app.tsx`** composes pure modules. It knows about all the layers but doesn't _contain_ their logic — it imports the pure modules (`engine`, `chunker`, `layout`, `grapheme`, `review`, `viewport`), calls their functions, threads state through React hooks. It splits into two components: **`App`** is a thin scope shell — it owns `startChunkIdx` (which chunk the run starts on) and the cloze re-drill scope (`clozeTypeable`); both re-scope the typeable indices, when `Tab`/`Shift+Tab` move the start or a finished run is re-drilled. **`Racer`** is one typing session over that scope: the engine fold plus the four custom hooks (`useLineLayout`, `useChunkViewport`, `useCharacterStyling`, `useStats`) that bundle related derivations to keep the component a short composition. Skipping a chunk — or starting a cloze re-drill — changes `Racer`'s `key`, which remounts it: that remount _is_ the run reset, so the engine itself needs no "rescope" / "re-drill" action.
 
 **`engine.ts`** is a pure state machine. Inputs: text + typeable indices + an action. Output: new state. No imports, no I/O, no React, no rendering. Testable by feeding actions and asserting on returned state.
 

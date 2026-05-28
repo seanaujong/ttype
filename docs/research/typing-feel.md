@@ -92,7 +92,7 @@ This keeps the engine general while making "render but don't require" a first-cl
 
 ## Cloze extends both principles
 
-The cloze re-drill (see the _cloze / active recall_ use case in [use-cases.md](use-cases.md)) is where _render the structure, require the content_ and _chill > strict_ combine into a recall-focused mode:
+The cloze re-drill is where _render the structure, require the content_ and _chill > strict_ combine into a recall-focused mode:
 
 - **Render the structure, require the content — applied to the whole passage.** In a cloze run, the text you've already typed is shown in full as dim context — the _structure_ of the passage is always visible. Only the blanked positions (the words you fumbled) are in the typeable set. You fill in the blanks; the cursor skips everything else.
 - **Untyped blanks render as `▁`**, one per blank, until you type the word. On type, the char reveals green or red exactly as in a normal run — same `styleFor` logic, no special cloze rules in the renderer.

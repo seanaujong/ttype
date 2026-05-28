@@ -23,15 +23,19 @@ ttype source/app.tsx       # ...source included — tabs and wide chars are hand
 cat notes.md | ttype       # or pipe via stdin
 git show HEAD | ttype      # a commit
 git diff | ttype --split   # a diff, two-column: typed (+) left, reference (-) right
+ttype --cloze essay.txt    # after the run, re-drill the words you fumbled
 ```
 
 Diff rendering is automatic for `.diff` / `.patch` files; `--diff` forces it and `--split` implies it.
+
+With `--cloze`, finishing a run re-drills the words you fumbled (slowest + most-mistyped) as fill-in-the-blanks — or press `c` on the results screen to start that re-drill after any run.
 
 ### Controls
 
 - **Type** to race — correct characters turn green, mistakes red.
 - **Tab** / **Shift+Tab** — before you start, skip to the next / previous chunk (paragraph, diff hunk, …).
 - **Esc** — restart the run.
+- **`c`** (on the results screen) — re-drill the words you fumbled as fill-in-the-blanks; `--cloze` does it automatically.
 - **Ctrl+C** — quit.
 
 ## Develop

@@ -6,7 +6,7 @@ Other type racers end with a **score**: WPM, accuracy, rank. Those numbers serve
 
 - Internalize content (essays, source files, PRs) by typing it.
 - Notice and improve typing habits over time.
-- Stay chill — see [typing-feel.md](typing-feel.md).
+- Stay chill — a run is feedback, not a score.
 
 A score doesn't directly serve any of those. So the post-run surface should be a **review**, not a scoreboard. We still _measure_ — we just frame the measurements as feedback for next time, not as a number to chase.
 
@@ -47,7 +47,7 @@ Candidate surfaces:
 - **Mistyped words.** Words you got wrong on the first attempt. Sometimes a typing habit, sometimes "I don't actually know how to spell this term."
 - **Sentences you spent the most time on.** Re-skim them. Effectively your own highlights.
 - **For code:** hesitation around specific identifiers / symbols. "You paused on `useMemo` three times" → maybe a signal to go read about it.
-- **Cloze re-drill (shipped).** The `clozeBlanks` selection (in `review.ts`) exposes the "fumbled positions" list computed in this same second fold. Pressing `c` on the results screen re-drills exactly those positions as a fill-in-the-blank pass — the most direct realization of the content-reflection thread. See the _cloze / active recall_ use case in [use-cases.md](use-cases.md) for the full flow.
+- **Cloze re-drill (shipped).** The `clozeBlanks` selection (in `review.ts`) exposes the "fumbled positions" list computed in this same second fold. Pressing `c` on the results screen re-drills exactly those positions as a fill-in-the-blank pass — the most direct realization of the content-reflection thread.
 
 The bar here is _gentle nudges toward learning_, not analytics.
 
@@ -68,7 +68,7 @@ Candidate surfaces:
 - **Not LLM-graded comprehension.** A real "did you understand this" feature is a different product; don't blur it.
 - **Not a dashboard.** A short, focused review surface — not metrics-and-charts.
 - **Not always on.** Press `q` after a run to skip review entirely.
-- **Not cross-session spaced repetition.** The cloze re-drill is single-session: it re-drills the blanks you fumbled _this run_. Tracking fumbled words across runs with decks, scheduling, and persistence is deliberately deferred — see the _non-goals_ section in [use-cases.md](use-cases.md).
+- **Not cross-session spaced repetition.** The cloze re-drill is single-session: it re-drills the blanks you fumbled _this run_. Tracking fumbled words across runs with decks, scheduling, and persistence is deliberately deferred.
 
 ## Complexity read
 
@@ -103,9 +103,3 @@ No WPM. No accuracy percentage. The user can press a key to expand any of the th
 - **Default end state** — review screen, or silent exit? Lean: review screen, but `q` exits immediately at any point.
 - **Log persistence default** — opt-in or opt-out? Lean: opt-in (some users won't want a `~/.ttype/` dir). Cross-session features are explicit about needing it.
 - **"Slow word" definition** — what's slow? Top 3 by total typing time? Top 3 by max inter-keystroke gap? Probably "median key delay across the word, ranked." But this is tuning, not architecture.
-
-## See also
-
-- [typing-feel.md](typing-feel.md) — the principles. WPM/accuracy mentions there now refer to _internal engine measurements that feed review_, not user-facing scores.
-- [scenarios.md](scenarios.md) — every scenario implicitly demonstrates entries in the keystroke log this doc consumes.
-- [use-cases.md](use-cases.md) — the _smoke_ case's end-of-run mock now reflects the review-style summary above, not a WPM score.

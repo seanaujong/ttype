@@ -88,6 +88,7 @@ The fixture runner scans the fixture directory, registers one ava test per JSON 
 - **Review is just a second fold.** Once with `reducer` to get final state; once with a review-specific fold to compute stats. Same input, different views. Built: `source/review.ts`'s `analyzeByWord(text, typeableIndices, events)` folds `state.events` into per-word timing and accuracy for the end-of-run results.
 - **Persistence is trivial.** Sessions are 100% described by `{ text, actions }`. No engine internals leak into the saved file.
 - **Engine tests don't need Ink.** The engine is a TS module that imports nothing UI-related. Tests are plain function calls.
+- **Cloze validated the design.** The active-recall re-drill (fill in the fumbled words) required zero engine changes. It works by re-scoping `typeableIndices` to the fumbled positions — the selection (`clozeBlanks` in `review.ts`) and the re-scope happen upstream; the engine receives a smaller typeable set and folds keystrokes identically. "What counts as one unit," "what's typeable," and "what's blanked" all live upstream of the engine. If any of those had leaked into the fold, cloze would have forced an engine change. The fact that it didn't is the event-sourced design working as intended.
 
 ## What we don't take from Showdown
 

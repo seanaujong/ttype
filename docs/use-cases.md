@@ -11,6 +11,7 @@ Each case names the **goal** in [../CLAUDE.md](../CLAUDE.md) it validates and th
 - **Type from stdin** — `curl ... | ttype`, `cat ... | ttype`; identical engine state to the file case.
 - **Type a git diff, commit, or PR** — `git diff | ttype`; engine doesn't know what a diff is; `--diff` rendering is a future additive layer.
 - **Type a whole source file** — `ttype source/app.tsx`; exposes tabs / trailing whitespace / long lines / non-printables. Also the **dogfood** entry point for the _self-hosting_ goal.
+- **Cloze / active recall** — `ttype --cloze <file>` (or press `c` on the results screen); re-drills only the words you fumbled, with the rest of the text shown as dim context — focused recall, not a second full pass.
 
 ## Smoke — built-in sample
 
@@ -110,6 +111,35 @@ These decisions live in the engine's data shape, so we want them settled before 
 
 **Dogfood note:** this case has a privileged role — it covers typing through _this very repo's_ `.tsx`, markdown, and diff output. See the _self-hosting_ goal in [../CLAUDE.md](../CLAUDE.md). If `ttype source/app.tsx`, `cat docs/typing-feel.md | ttype`, and `git show HEAD | ttype` don't all feel right, the engine isn't done.
 
+## Cloze / active recall
+
+For internalizing text — not just measuring speed, but actually remembering what you typed.
+
+After any run you can press `c` on the results screen to launch a cloze re-drill. ttype picks the words you fumbled (the slowest and most-mistyped, identified by the same second-fold analysis that feeds the results panel), then re-scopes the run to just those positions. The surrounding text stays on screen as dim context; each blank renders as `▁` until you type it, at which point it reveals green or red the same way a normal run does. You fill in only the blanks — the cursor skips everything else.
+
+```
+$ ttype --cloze ~/notes/paul-graham-makers.txt
+```
+
+With `--cloze`, ttype starts with a normal warm-up pass over the full text (it needs that pass to gather slow/wrong data), then automatically drops into the fill-in-the-blank re-drill when the warm-up finishes. No separate step, no flags to juggle.
+
+You can also reach the re-drill from any run — including a _smoke_ or stdin run — by pressing `c` on the results screen:
+
+```
+done in 42.1s
+
+slowest spots:  "idempotent", "mutex", "coroutine"
+typos:          fixed 5 · 1 remains
+
+<enter> retry · <c> re-drill blanks · <q> quit
+```
+
+Pressing `c` remounts the racer with just those fumbled positions as the typeable set. WPM and accuracy in the cloze run measure recall of the blanks specifically.
+
+**Connection to the "internalize the text" motivation:** ttype's goal isn't to clock the fastest WPM — it's to engage with the text deeply enough that it sticks. Cloze makes that explicit: instead of re-typing the whole passage until it's rote, you focus attention on exactly what gave you trouble. The spirit is closer to Anki than to TypeRacer.
+
+**Validates the _general-purpose engine_ goal and the _layerable rendering_ goal together:** cloze is implemented as a pure selection (`clozeBlanks` in `review.ts`) + a `typeableIndices` re-scope + a render flag. The engine is untouched. If realizing cloze had required engine changes, those goals would be violated.
+
 ## Open questions to settle before coding
 
 A consolidated list — we don't need final answers on all of these today, but the answers shape the engine's types:
@@ -130,3 +160,4 @@ Calling these out so we don't accidentally creep:
 - Persistent stats across sessions / leaderboards.
 - Custom themes / config files.
 - Syntax highlighting in v1 (the `--diff` renderer is the first taste of source-aware decoration; syntax highlighting can come after if we still want it).
+- **Cross-session spaced repetition** — decks, scheduling, and persistence that would let ttype track your fumbled words across runs and resurface them on an Anki-style interval. The single-session cloze re-drill (above) is shipped and works; the cross-session layer is a separate, larger project deferred until there's a concrete consumer.

@@ -379,3 +379,5 @@ If the engine passes all of them, we know:
 - **Edge cases don't crash or behave surprisingly** — _blank line in source_, _tabs in source_, _backspace at the very start_.
 
 Each scenario maps to a JSON fixture under `source/fixtures/` (when the scenario is implemented) or an in-code unit test (for invariants like reference identity or error paths).
+
+Chunk-skipping and cloze both re-scope `typeableIndices` before a run begins — they exercise the same engine these scenarios already cover, with no new engine behavior to add.

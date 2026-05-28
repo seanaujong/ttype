@@ -9,7 +9,7 @@ Living design docs for ttype. Read in this order if you're new:
 5. **[architecture.md](architecture.md)** — high-level layer map. Adapter → React shell → pure modules. Where everything fits and how data flows.
 6. **[engine-design.md](engine-design.md)** — the engine architecture (event-sourced, replayable, framework-agnostic) that makes everything above possible.
 7. **[rendering.md](rendering.md)** — the renderer layer. Semantic chunking, viewport policy, layerable source-kind-aware overlays. What turns engine state into a terminal frame.
-8. **[testing.md](testing.md)** — testing layers. Reducer unit tests, replay fixtures, and the deferred integration tests; what each layer covers and what it doesn't.
+8. **[testing.md](testing.md)** — testing layers. Reducer unit tests, replay fixtures, and integration/flow tests (the TUI harness + viewport geometry guard + cloze flow); what each layer covers and what it doesn't.
 9. **[ts-conventions.md](ts-conventions.md)** — TypeScript patterns for making illegal states unrepresentable and keeping the engine pure (discriminated unions, exhaustiveness, `readonly`, branded types, no mutation).
 
 Project-level goals and commands live in [../CLAUDE.md](../CLAUDE.md).

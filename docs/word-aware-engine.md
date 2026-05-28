@@ -124,3 +124,5 @@ function analyzeByWord(text: string, actions: Action[]): WordStats[] {
 Same shape as the engine reducer — a pure fold over the log — just computing a different summary. This is the **review = second fold** pattern: same data, different aggregation.
 
 So word-awareness as an analytical concept lives in the review layer, not the engine. The engine stays simple; richness lives in downstream consumers. This is a clean architectural separation that the original "make the engine word-aware" design conflated.
+
+**This is now concretely realized.** `source/review.ts` implements `analyzeByWord`, `slowestWords`, and `mostMistypedWords` as pure post-hoc folds over the engine's event log — no engine changes required. The cloze feature (`clozeBlanks` in `review.ts`) builds directly on those word stats: it selects the fumbled positions and re-scopes `typeableIndices` to them for the fill-in-the-blank re-drill. The engine never learned what a word is. The entire "word" concept lives in `review.ts` and was exercised through `--cloze` without a single change to the engine state machine.

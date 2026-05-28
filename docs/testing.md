@@ -6,9 +6,9 @@ ttype's tests are layered by what they isolate. Each layer answers different que
 
 - **Reducer unit tests** — fastest, smallest. Call the reducer with explicit inputs; assert on the returned state. No Ink, no React, no I/O.
 - **Replay fixtures** — JSON files describing a session as `{text, events, expected}`. Loaded by a generic runner that folds events through the reducer and compares.
-- **Integration tests** (planned, not yet written) — render the actual component with `ink-testing-library`, simulate keystrokes, assert on the rendered frame.
+- **Integration / flow tests** — render the actual component via the TUI harness (`source/ink-harness.ts`), simulate keystrokes, assert on the rendered frame. Written. Cover keyboard wiring, geometry invariants, and the end-to-end cloze flow.
 
-The first two layers are in place. The third is a known gap; this doc names what it would cover and what it costs.
+All three layers are in place.
 
 ## Reducer unit tests
 
@@ -73,7 +73,7 @@ When to reach for a fixture vs. an in-code reducer test:
 
 The two layers coexist; one isn't the upgrade path to the other.
 
-## Integration tests (not yet written)
+## Integration and flow tests
 
 Reducer tests cover the engine. They **don't** cover the wiring between the React component and the engine — specifically:
 
@@ -82,47 +82,48 @@ Reducer tests cover the engine. They **don't** cover the wiring between the Reac
 - The visible frame correctly shows green for matched chars, red for mismatches, and the cursor highlight at the right column.
 - The status row updates when the session completes.
 
-To cover that surface, use `ink-testing-library` (already a devDep). Sketch:
+These are now covered. The deferral trigger was hit: recurring rendering/flicker bugs and the need to verify that the rendered frame fits the terminal geometry made a committed harness the right call.
+
+### The TUI harness (`source/ink-harness.ts`)
+
+`ink-testing-library@3` and `ink@4` disagree about how input and size reach the component. Rather than re-inventing the shim in every test file, `source/ink-harness.ts` centralizes it. The harness installs three patches on the mock stdin/stdout before any test can run:
+
+1. **`ref`/`unref` stub** — Ink calls `stdin.ref()` when it enables raw mode; the mock has neither, so `useInput`'s first effect would throw. The harness adds no-op stubs.
+2. **`read()`/`'readable'` bridge** — `ink@4` reads input by attaching a `'readable'` listener and draining `stdin.read()` until it returns `null`. The mock only emits `'data'` (which Ink ignores), so the harness queues keystroke bytes and feeds them through `read()` + a `'readable'` emit instead.
+3. **`resize` with listener-safe timing** — the `'resize'` event is emitted _after_ the effect that attaches the listener has had one tick to run, so the first resize actually reaches the hook.
+
+The public API is:
 
 ```ts
-import test from 'ava';
-import {render} from 'ink-testing-library';
-import App from './app.js';
-
-test('pressing Enter advances the cursor past a newline', t => {
-	const {stdin, lastFrame} = render(<App text="a\nb" />);
-
-	stdin.write('a');
-	stdin.write('\r'); // carriage return — what the terminal sends for Enter
-	stdin.write('b');
-
-	t.regex(lastFrame() ?? '', /a/);
-	t.regex(lastFrame() ?? '', /b/);
-});
+renderApp(props); // mounts <App> with the shims
+renderComponent(element); // mounts any element — used by Racer-direct tests
 ```
 
-Wrinkles to know about when these get written:
+Both return a `RenderedApp` with `press(bytes)`, `type(text)`, `pressEnter()`, `pressBackspace()`, `resize({columns, rows})`, `tick()`, `frameLines()`, `lastFrame()`, and `unmount()`.
 
-- **Terminal Enter is `\r`, not `\n`.** Ink translates `\r` from stdin into `key.return: true`; the app's useInput then maps that to a `TYPE_CHAR` with `char='\n'`. The test feeds `\r` to exercise the full chain.
-- **`lastFrame()` includes ANSI escape codes.** Use `t.regex` against substrings; don't try to compare full styled frames as strings — too brittle.
-- **Render timing**: `stdin.write(...)` triggers a re-render, but a microtask tick may be needed before `lastFrame()` reflects it. Some test patterns insert `await new Promise(r => setImmediate(r))` between writes and assertions.
-- **macOS Delete key is `\x7f` (DEL)**, not `\x08` (BS). Both map to BACKSPACE/DELETE flags in Ink, but only one is what the user's keyboard actually sends — test with the real byte.
+Wrinkles encoded in the harness:
 
-## Why integration tests are deferred
+- **Terminal Enter is `\r`, not `\n`.** Ink translates `\r` from stdin into `key.return: true`; the app's `useInput` maps that to a `TYPE_CHAR` with `char='\n'`. `pressEnter()` sends `'\r'` to exercise the full chain.
+- **`lastFrame()` includes ANSI escape codes.** Assert on substrings or glyph counts (`frame.match(/▁/g)`), not full styled strings — full frame comparison is too brittle.
+- **Render timing** — effects (raw-mode setup, input listener, resize listener) run after the first commit, not during `render()`. The harness waits one tick before the first keystroke or resize so those listeners are attached.
+- **macOS Delete key is `\x7f` (DEL)**, not `\x08` (BS). `pressBackspace()` sends the real byte.
 
-For the current scope (one component, one reducer, a handful of key bindings), the engine-level fixtures cover most behavior worth testing. Integration tests have real costs:
+### What is tested
 
-- More brittle than reducer tests; touch Ink internals.
-- Slower (component mount + render cycle per test).
-- Can break on Ink upgrades even when behavior is unchanged.
+**`source/viewport.test.ts`** — geometry guard: for several passage shapes (a 60-line tall chunk, a 150-char wide line, a diff in split mode, a narrow-terminal footer, a live-typing frame) the emitted frame must fit within the terminal dimensions. The test renders via the harness, resizes when needed, and checks `lines.length < rows && every line width < columns`. This is a geometry invariant, not a brittle content snapshot.
 
-The pragmatic point at which to add them is when one of these becomes true:
+**`source/cloze-render.test.ts`** — the cloze contract and flow:
 
-- You catch yourself manually testing the same key binding repeatedly.
-- A useInput refactor scares you.
-- A bug ships that was in the useInput → reducer plumbing (not the reducer itself).
+- A cloze run hides untyped blank positions as `▁`; a normal run masks nothing.
+- Typing a blank reveals it (the masking resolves as the cursor passes through).
+- On the results screen, pressing `c` remounts a new run with the fumbled words blanked.
+- With `--cloze`, completing the warm-up auto-advances into the masked re-drill without pressing `c`.
 
-Until then, accumulating reducer fixtures is higher leverage. Belt-and-suspenders is worth doing _eventually_; doing it _now_ is premature.
+The masking tests drive `Racer` directly via `renderComponent`; the flow tests drive the full `App` via `renderApp`.
+
+### Remaining limit
+
+The harness can model keystroke wiring and frame geometry but **cannot model real-terminal auto-wrap** — that requires a real frame capture or a human's eyes. True end-to-end real-terminal testing remains out of scope. Cloze and other features are dogfooded interactively to cover what the harness cannot.
 
 ## The categories together
 
@@ -130,6 +131,6 @@ Roughly, what each layer is suited for:
 
 - **Reducer unit tests** — invariants, edge cases, reference identity, error paths.
 - **Replay fixtures** — scenarios, regression tests for bug reports, anything that fits "given a session, the final state should be X."
-- **Integration tests** — keyboard wiring, the rendered frame, anything visible to the user.
+- **Integration / flow tests** — keyboard wiring, the rendered frame geometry, end-to-end feature flows (cloze re-drill, auto-advance, masking).
 
-The boundary you're testing across should match the layer you're using. A failed reducer test points at the reducer; a failed fixture points at the engine end-to-end; a failed integration test points at the wiring. Mixing layers obscures which thing actually broke.
+The boundary you're testing across should match the layer you're using. A failed reducer test points at the reducer; a failed fixture points at the engine end-to-end; a failed integration test points at the wiring or the rendered frame. Mixing layers obscures which thing actually broke.

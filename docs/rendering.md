@@ -5,6 +5,7 @@ This doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`
 ## At a glance
 
 - **Layerable rendering** — a base renderer works for any text; source-kind-aware behavior (diff hunks, syntax highlight, markdown structure) is additive and lives outside the engine.
+- **Cloze masked render** — in an active-recall re-drill, untyped typeable positions render as `▁` and reveal green/red on type; surrounding non-blank text is dim context because `typeableIndices` was re-scoped to only the blanks. Pure render-layer behavior keyed on `isClozeRun`; engine untouched.
 - **Semantic chunking** — the viewport is sized by the cursor's containing chunk (function body, paragraph, diff hunk), not by raw line count. Line-windowing is the floor, not the ceiling.
 - **Line-window fallback** — when a chunk exceeds the viewport, render a cursor-centered line window _inside_ it. The fallback always works.
 - **Cursor is always visible** — sticky-middle policy; the user never types past the bottom of the rendered output.
@@ -20,6 +21,22 @@ A default renderer handles any text. Source-kind-aware features (diff hunk dimmi
 The discipline: the engine doesn't know what its input "is." A diff, a TypeScript file, and a paragraph of prose all flow through the same `applyEvent(state, event) → state`. If the engine ever needs to ask "is this a diff?", we've drifted. The rendering layer is where that question becomes legal — and even there, it's answered by _which renderer is plugged in_, not by branching inside one renderer.
 
 A renderer plugged into the engine is a function `(state) → Frame`. A layer is a transformation `Frame → Frame`. They compose; the engine doesn't care. This is the load-bearing pattern that lets us add `--diff`, `--syntax`, etc., without ever editing engine code.
+
+## Cloze masked render
+
+The cloze re-drill (active recall) is the clearest example of layerable rendering in the codebase, because it adds a new per-character visual mode without touching the engine at all.
+
+**How it works:** after a typing run, `clozeBlanks` in `review.ts` selects the fumbled positions (slowest + most-mistyped words). `App` re-scopes `typeableIndices` to exactly that list and remounts `Racer` with `isClozeRun = true`. From the engine's perspective, nothing changed — it receives a smaller `typeableIndices` set and folds keystrokes the same way. All the "cloze" logic lives upstream of the engine.
+
+**What the renderer does differently when `isClozeRun` is true:**
+
+- **Untyped typeable positions** (the blanks you haven't filled yet) render as `▁` — the placeholder glyph is repeated to match the display width of the underlying character, so wide glyphs (CJK) keep columns aligned.
+- **Once typed**, the position reveals its result via the existing `styleFor` logic: green for correct, red for wrong. No new render path — the same character-styling hook that drives a normal run handles the reveal.
+- **All other text** — the positions not in `typeableIndices` — is non-typeable because the index set was re-scoped. The cursor skips them. They render as dim context, letting you see the surrounding passage while typing only the blanks.
+
+**The engine purity invariant holds by construction:** `isClozeRun` is a render flag, not an engine flag. The engine never sees it. A test (`cloze-render.test.ts`) confirms that masked-ahead / revealed-on-type / no-mask-in-a-normal-run all hold at the render layer, and that the `c`-key re-drill and `--cloze` auto-advance flow correctly — without asserting on any engine internals.
+
+**WPM and accuracy in a cloze run** measure recall of the blanks specifically, because `typeableIndices` is the re-scoped set. The fold hasn't changed; the input to the fold has.
 
 ## Semantic chunking
 

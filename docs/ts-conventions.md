@@ -210,12 +210,10 @@ The constructor is the one place that gets to write `as TypeableIndex`. Everywhe
 
 The compiler is your fastest test. Turn it up.
 
-The current `@sindresorhus/tsconfig` base is already strict; we should additionally enable (when the engine lands):
+The current `@sindresorhus/tsconfig` base is already strict. Of the two flags originally earmarked to enable when the engine landed:
 
-- `noUncheckedIndexedAccess: true` — `arr[0]` becomes `T | undefined`. Forces explicit handling of array bounds, which is exactly the kind of thing the engine should never get wrong.
-- `exactOptionalPropertyTypes: true` — `{ x?: string }` no longer accepts `{ x: undefined }`. Optional means "may be absent," not "may be undefined."
-
-We'll flip these on when we start writing engine code, not retroactively.
+- `noUncheckedIndexedAccess: true` — **already on** in `@sindresorhus/tsconfig`. `arr[0]` is `T | undefined`; array bounds must be handled explicitly.
+- `exactOptionalPropertyTypes: true` — **not yet enabled**. Turning it on would mean `{ x?: string }` no longer accepts `{ x: undefined }` — optional means "may be absent," not "may be undefined." Worth enabling if the codebase stays clean.
 
 ## Avoid `any`. Tolerate `unknown` at boundaries.
 
@@ -308,6 +306,7 @@ When you write or review engine code, run through this list:
 - [ ] Did I introduce `any`? (Search for it before committing.)
 - [ ] If I added a new event kind / char state / cursor variant, did the compiler force me to handle it everywhere? If not, an `exhaustive` check is missing somewhere.
 - [ ] Does every escape hatch (`useMemo`, `useEffect`, `as`, `!`, `eslint-disable`) carry a one-line "why" comment immediately above it?
+- [ ] Are boolean React props named with an `is*` or `has*` prefix? (`isClozeRun`, not `clozeRun`; `isAutoCloze`, not `autoCloze`.) The xo `react/boolean-prop-naming` rule enforces this and the gate will fail without it.
 
 ## See also
 

@@ -47,6 +47,7 @@ Candidate surfaces:
 - **Mistyped words.** Words you got wrong on the first attempt. Sometimes a typing habit, sometimes "I don't actually know how to spell this term."
 - **Sentences you spent the most time on.** Re-skim them. Effectively your own highlights.
 - **For code:** hesitation around specific identifiers / symbols. "You paused on `useMemo` three times" → maybe a signal to go read about it.
+- **Cloze re-drill (shipped).** The `clozeBlanks` selection (in `review.ts`) exposes the "fumbled positions" list computed in this same second fold. Pressing `c` on the results screen re-drills exactly those positions as a fill-in-the-blank pass — the most direct realization of the content-reflection thread. See the _cloze / active recall_ use case in [use-cases.md](use-cases.md) for the full flow.
 
 The bar here is _gentle nudges toward learning_, not analytics.
 
@@ -67,6 +68,7 @@ Candidate surfaces:
 - **Not LLM-graded comprehension.** A real "did you understand this" feature is a different product; don't blur it.
 - **Not a dashboard.** A short, focused review surface — not metrics-and-charts.
 - **Not always on.** Press `q` after a run to skip review entirely.
+- **Not cross-session spaced repetition.** The cloze re-drill is single-session: it re-drills the blanks you fumbled _this run_. Tracking fumbled words across runs with decks, scheduling, and persistence is deliberately deferred — see the _non-goals_ section in [use-cases.md](use-cases.md).
 
 ## Complexity read
 
@@ -92,6 +94,8 @@ Three things, max:
 3. **Corrected vs. uncorrected** — `you fixed 7 typos; 2 remain` (the latter being uncorrected red chars at run end). Includes auto-missed chars in its own line: `8 chars skipped via mid-line Enter`.
 
 No WPM. No accuracy percentage. The user can press a key to expand any of the three into a more detailed view (deferred — start with the three lines).
+
+**Cloze is now also on the results screen (shipped).** The results screen adds `<c> re-drill blanks` alongside the existing retry / quit options. The fumbled words shown in the results panel and the cloze blank-selection are produced by the same `clozeBlanks` call in `review.ts` — one second fold, two consumers (display and re-drill).
 
 ## Open questions
 

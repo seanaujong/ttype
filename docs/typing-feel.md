@@ -90,6 +90,16 @@ These principles aren't just visual — they shape the engine's API:
 
 This keeps the engine general while making "render but don't require" a first-class concept rather than a hack.
 
+## Cloze extends both principles
+
+The cloze re-drill (see the _cloze / active recall_ use case in [use-cases.md](use-cases.md)) is where _render the structure, require the content_ and _chill > strict_ combine into a recall-focused mode:
+
+- **Render the structure, require the content — applied to the whole passage.** In a cloze run, the text you've already typed is shown in full as dim context — the _structure_ of the passage is always visible. Only the blanked positions (the words you fumbled) are in the typeable set. You fill in the blanks; the cursor skips everything else.
+- **Untyped blanks render as `▁`**, one per blank, until you type the word. On type, the char reveals green or red exactly as in a normal run — same `styleFor` logic, no special cloze rules in the renderer.
+- **Chill, not punishing.** A cloze run is not a test with a grade; it's a second pass at things that caught you. Wrong recalls are marked red like any other wrong keystroke — noted, not catastrophized. Press `esc` to quit at any point.
+
+This means the same _render the structure, require the content_ invariant that keeps leading whitespace out of the typing path in a normal run is the same mechanism that keeps already-recalled text out of the typing path in a cloze run. The engine's `typeableIndices` re-scope is the only thing that changes between a normal run and a cloze run — the render layer and the feel rules are untouched.
+
 ## Open questions
 
 - **Per-character mistake breakdown at end-of-run:** useful, but adds end-screen complexity. Defer.

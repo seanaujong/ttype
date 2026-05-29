@@ -2,6 +2,20 @@
 
 A type-racer for your terminal. Drill on the text you actually read — prose, source files, git commits, PRs, and diffs — all through one engine. Built on [Ink](https://github.com/vadimdemedes/ink).
 
+## Demo
+
+<!--
+  Paste the CDN URL below once. To get it: drag demo/ttype.mp4 into any GitHub
+  issue/PR/comment box — GitHub uploads it to its asset CDN and gives you a
+  https://github.com/user-attachments/... URL. Put that URL on its own line
+  here (GitHub auto-embeds it as an inline player). The video itself never
+  enters the repo. Regenerate the recording anytime with `vhs demo/ttype.tape`.
+
+  For a GIF instead, drag demo/ttype.gif the same way and use: ![demo](URL)
+-->
+
+https://github.com/user-attachments/assets/b9b9f8bc-2f31-48aa-823b-c80f0749a720
+
 ## Install
 
 ttype isn't published to npm — install it from a local clone:

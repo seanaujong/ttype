@@ -5,3 +5,8 @@ docs/diary/
 # macOS / editor cruft
 .DS_Store
 .vscode/
+
+# Demo recordings are regenerated from demo/ttype.tape; the tape is the source.
+demo/*.gif
+demo/*.mp4
+demo/*.webm

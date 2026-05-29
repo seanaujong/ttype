@@ -2,8 +2,6 @@
 
 A type-racer for your terminal. Drill on the text you actually read — prose, source files, git commits, PRs, and diffs — all through one engine. Built on [Ink](https://github.com/vadimdemedes/ink).
 
-It handles the awkward parts of real text: tabs, wide characters (CJK, emoji), and accented letters all render and type correctly; diff markers and indentation are shown but never typed.
-
 ## Install
 
 ttype isn't published to npm — install it from a local clone:

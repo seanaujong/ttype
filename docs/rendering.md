@@ -1,6 +1,6 @@
 # Rendering
 
-This doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`; the renderer turns those into a frame on the terminal each tick. The renderer is allowed to be opinionated about presentation; the engine never is.
+This doc covers _what the user sees_. The engine state is `{text, typeableIndices, keystrokes, events, …}` and the cursor is derived as `keystrokes.length` rather than stored; the renderer turns those into a frame on the terminal each tick. The renderer is allowed to be opinionated about presentation; the engine never is.
 
 ## At a glance
 
@@ -18,7 +18,7 @@ This doc covers _what the user sees_. The engine is `{text, keystrokes, cursor}`
 
 A default renderer handles any text. Source-kind-aware features (diff hunk dimming, syntax coloring, markdown structure) are layers _on top of_ the default — additive, opt-in, outside the engine.
 
-The discipline: the engine doesn't know what its input "is." A diff, a TypeScript file, and a paragraph of prose all flow through the same `applyEvent(state, event) → state`. If the engine ever needs to ask "is this a diff?", we've drifted. The rendering layer is where that question becomes legal — and even there, it's answered by _which renderer is plugged in_, not by branching inside one renderer.
+The discipline: the engine doesn't know what its input "is." A diff, a TypeScript file, and a paragraph of prose all flow through the same `reducer(state, action) → state`. If the engine ever needs to ask "is this a diff?", we've drifted. The rendering layer is where that question becomes legal — and even there, it's answered by _which renderer is plugged in_, not by branching inside one renderer.
 
 A renderer plugged into the engine is a function `(state) → Frame`. A layer is a transformation `Frame → Frame`. They compose; the engine doesn't care. This is the load-bearing pattern that lets us add `--diff`, `--syntax`, etc., without ever editing engine code.
 

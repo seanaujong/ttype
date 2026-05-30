@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`ttype` is an Ink-based terminal type-racer, originally scaffolded with `create-ink-app`. It is now a working, feature-complete tool: one pure engine races arbitrary text (prose, source, commits, PRs, diffs), with additive rendering layers (diff / markdown / two-column `--split` view), chunk-skipping, an end-of-run results screen, and a cloze (fill-in-the-blank) active-recall re-drill. The goals below are met; the one remaining additive thread is syntax highlighting. See `docs/` for the design and `docs/diary/TODO.md` (gitignored) for the living status.
+`ttype` is an Ink-based terminal type-racer, originally scaffolded with `create-ink-app`. It is now a working, feature-complete tool: one pure engine races arbitrary text (prose, source, commits, PRs, diffs), with additive rendering layers (diff / markdown / two-column `--split` view), chunk-skipping, an end-of-run results screen, and a cloze (fill-in-the-blank) active-recall re-drill. The goals below are met; the one remaining additive thread is syntax highlighting. Its plug-in points live in [docs/architecture.md](docs/architecture.md) → _How to extend each layer_ → _New decoration kind_: extend `SpanKind` in `source/chunker.ts`, have a chunker emit token spans with the new kind, and add the matching entry to the `spanVisuals` record in `source/app.tsx`. No code chunker emits interior token spans today — this is greenfield. The intended tokenization stance mirrors `markdownChunker`: regex-pure over the text, no new runtime dependency unless we decide otherwise. See `docs/` for the design and `docs/diary/TODO.md` (gitignored) for the living status.
 
 ## Why ttype exists
 
@@ -48,7 +48,7 @@ These are the demos/tests we use to check we're meeting the goals. If a change m
 - **Stdin adapter:** `cat foo.md | ttype` and `git diff | ttype` both work. Same engine, different adapter. If `git diff | ttype` requires engine changes, the boundary is wrong.
 - **Diff-aware rendering (optional layer):** with a `--diff` flag (or auto-detected), `+`/`-` lines render differently _without_ the core engine knowing what a diff is. This is the test that the _layerable rendering_ goal actually holds.
 - **Engine unit tests:** the engine is testable in isolation with a plain string input and a sequence of simulated keystrokes — no Ink, no adapters. If the engine can't be tested without rendering, it's doing too much.
-- **Type-level invariants (the compiler is a test):** illegal states must be unrepresentable, not "validated at runtime." Discriminated unions with `kind` fields instead of flag bags or nullable numbers. Every `switch` on a union ends in a `never` exhaustiveness check. State is `Readonly<…>` / `ReadonlyArray<…>`; the engine never mutates. No `any` in engine code; `unknown` only at adapter boundaries. See [docs/research/ts-conventions.md](docs/research/ts-conventions.md) for the full checklist.
+- **Type-level invariants (the compiler is a test):** illegal states must be unrepresentable, not "validated at runtime." Discriminated unions with `kind` fields instead of flag bags or nullable numbers. Every `switch` on a union ends in a `never` exhaustiveness check. State is `Readonly<…>` / `ReadonlyArray<…>`; the engine never mutates. No `any` in engine code; `unknown` only at adapter boundaries. See [docs/research/ts-conventions.md](docs/research/ts-conventions.md) for the full checklist — its _principles_ are current, but its `charStates` / `Cursor` / `applyEvent` code samples predate the shipped `{text, keystrokes, events}` engine, so trust `source/engine.ts` for the actual shape.
 - **Replayability (the engine is a fold):** every scenario in `docs/research/scenarios.md` is also a JSON fixture: `{ text, events[], expected }`. A test loads the fixture, feeds events through the engine `reducer` (via `replay`), asserts on the result. If something can affect engine outcomes that isn't in `events` (a wall clock, a global, an env var), that's a bug. See [docs/research/engine-design.md](docs/research/engine-design.md).
 - **Teaching check:** after a non-trivial change, Sean should be able to point at any new line and say what it does and why. If not, we went too fast — slow down and explain.
 - **Dogfood (self-hosting):** running `ttype source/app.tsx`, `cat docs/research/typing-feel.md | ttype`, and `git show HEAD | ttype` against this repo should all work and feel right — no special cases, no engine flags. Once the engine exists, this becomes a fixed checkpoint we run periodically. It catches edge cases that synthetic test text doesn't: mixed tabs/spaces in TS files, fenced code blocks in markdown, `+`/`-` markers in diffs, long lines, unicode in commit messages, etc. (The _self-hosting_ goal made concrete.)
@@ -73,6 +73,13 @@ The full map (with a diagram and invariant tables) is [docs/architecture.md](doc
 - `source/layout.ts` / `source/grapheme.ts` / `source/viewport.ts` / `source/review.ts` — pure helpers: display-width + cursor-following scroll geometry; grapheme clustering; the "frame fits the terminal" invariant; and the post-run second fold (per-word stats + the `clozeBlanks` cloze selection).
 - Tests: `source/*.test.ts` (ava) plus replayable JSON fixtures in `source/fixtures/`; `source/ink-harness.ts` is the committed TUI test driver (`renderApp` / `renderComponent`). See [docs/testing.md](docs/testing.md).
 
+Top-level directories outside `source/`:
+
+- `samples/` — hand-made input fixtures for manual dogfooding: `markdown.md` exercises the markdown spans; `skip.txt` walks the Tab / Shift+Tab chunk-skip flow. Not consumed by the automated tests.
+- `scripts/dogfood.tsx` — a headless harness (`npx tsx scripts/dogfood.tsx`) that runs the chunker + typeable-index path over sample inputs and prints typeable vs cosmetic positions, so span behavior can be checked without a TTY. Not part of the test suite or the published package.
+- `demo/` — the README demo: `ttype.tape` is a committed VHS script that races `demo/demo.txt`; the rendered `ttype.gif` / `ttype.mp4` are gitignored (re-render with `vhs demo/ttype.tape`).
+- `readme.md` — the public-facing README (install, usage, and the embedded demo).
+
 ESM specifics that matter when editing:
 
 - `package.json` has `"type": "module"`, so relative imports must use explicit `.js` extensions even when the source is `.tsx`/`.ts`.
@@ -81,3 +88,7 @@ ESM specifics that matter when editing:
 ## Lint/format
 
 `xo` (extends `xo-react`, prettier-integrated) is the linter; `@vdemedes/prettier-config` is the formatter config. `react/prop-types` is disabled. `npm test` will fail on any prettier or xo violation before tests run, so format/lint locally before assuming a test failure is logic-related.
+
+## Dependencies
+
+Runtime dependencies are deliberately minimal — `ink`, `meow`, `react`, `string-width`. Don't add one without raising it first: the chunkers are intentionally pure regex over text, not library-backed parsers, and syntax highlighting is expected to stay that way (see the Project note above).

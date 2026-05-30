@@ -54,20 +54,24 @@ When the cursor's chunk fits on screen, render the whole chunk. The user sees th
 ### The Chunker abstraction
 
 ```ts
+// The live shape is source/chunker.ts; this sketch shows the load-bearing fields.
 type Chunk = {
 	start: number; // character offset (inclusive)
 	end: number; // character offset (exclusive)
 	label?: string; // optional — "function foo", "hunk 1", etc.
-	kind?: ChunkKind; // optional — see "hybrid documents" below
+	kind?: ChunkKind; // optional — the chunk's structural unit (see "hybrid documents")
+	spans?: Span[]; // optional — cosmetic ranges inside the chunk (see below)
 };
 
-type ChunkKind =
-	| 'prose'
-	| 'code'
-	| 'heading'
-	| 'fenced-code'
-	| 'diff-hunk'
-	| string;
+type ChunkKind = 'prose' | 'code' | 'heading' | 'fenced-code' | 'diff-hunk';
+
+// A cosmetic range within a chunk: rendered, but not in the typing path.
+// `style` is a hint the renderer maps to a visual; the engine never reads it.
+type Span = {
+	style: SpanKind; // 'diff-add', 'md-heading-prefix', … — full union in source/chunker.ts
+	start: number;
+	end: number;
+};
 
 type Chunker = (text: string) => Chunk[];
 ```
@@ -85,7 +89,7 @@ Different input kinds get different chunkers, picked by the adapter (file extens
 
 Real-world content often mixes shapes within a single document — markdown with embedded code blocks, GitHub PR descriptions with diff snippets, design docs with prose + ASCII diagrams + sample code, Slack messages with text + code snippets. The chunker is the layer that recognizes these transitions.
 
-The `kind` field on each chunk tells the renderer what's inside, so per-kind decoration can apply: syntax highlighting on `fenced-code`, dim heading prefixes on `heading`, ANSI-styled `+`/`-` lines on `diff-hunk`. The renderer reads `kind` and switches behavior; the engine never sees the field.
+Two fields carry this, at different granularities. `kind` names the chunk's structural unit — descriptive metadata for the chunk as a whole. The finer-grained decoration lives in `spans`: each chunker tags cosmetic sub-ranges with a `SpanKind` — the `diffChunker` emits `diff-add` / `diff-header` / … spans, the `markdownChunker` emits `md-heading-prefix` / `md-fence` / … spans. Two consumers read those spans: `computeTypeableIndices` drops the covered positions from the typing path (so you don't type the `> ` quote prefix or a `+` marker), and `spanVisuals` in `app.tsx` maps each `SpanKind` to a visual. Syntax highlighting on `fenced-code` is the one decoration not yet emitted — it'd be a new `SpanKind` family on the code chunk. The engine never sees `kind` or `spans`.
 
 A markdown chunker for a doc like:
 
@@ -114,8 +118,8 @@ More prose.
 
 Decisions worth noting up front:
 
-- **Start flat, defer hierarchical chunks.** A `chunks?: Chunk[]` field for sub-chunking inside a code block is tempting but adds tree-traversal logic everywhere chunks are consumed. Flat chunks + per-kind handling in the renderer covers most cases; hierarchical chunks earn their place if and when a real use case demands them.
-- **Per-kind rendering, not per-file.** The same doc can switch decoration mid-stream as kinds change. This is the _layerable rendering_ property at the chunk granularity instead of the document granularity.
+- **Start flat, defer hierarchical chunks.** A `chunks?: Chunk[]` field for sub-chunking inside a code block is tempting but adds tree-traversal logic everywhere chunks are consumed. Flat chunks + per-span decoration covers most cases; hierarchical chunks earn their place if and when a real use case demands them.
+- **Per-span decoration, not per-file.** The same doc can switch decoration mid-stream as spans change. This is the _layerable rendering_ property at sub-chunk (span) granularity instead of the document granularity.
 - **Kind is renderer concern, not engine concern.** The engine still sees uniform text and a typing-path cursor. Kinds inform display, not what the user types.
 
 ### Per-input chunkers

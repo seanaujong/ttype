@@ -136,6 +136,10 @@ function useChunkViewport({
 	readonly lineForPos: (pos: number) => number;
 	readonly viewportLineBudget: number;
 }) {
+	// The last chunk starting at or before the cursor. When the cursor sits
+	// exactly on a boundary, this resolves to the chunk it's entering, not the
+	// one it just finished — the user is about to type into the next chunk, so
+	// that's the one to focus and size the viewport around.
 	const focusedChunk = chunks.findLast(chunk => chunk.start <= focusPos);
 
 	const chunkLines = (chunk: Chunk): number =>

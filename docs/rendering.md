@@ -191,8 +191,6 @@ A few sites show just the current line plus a sliver of context. This works for 
 
 ## Cursor highlight
 
-_(stub — fill in when implemented.)_
-
 The next-to-type character gets an **inverse-video background**, not a thin caret. Carets get lost against monospaced text on dark themes; inverse video doesn't.
 
 When the cursor is inside the viewport, the highlight is at its actual position. When the cursor would be off-screen — shouldn't happen given sticky-middle, but defensively — the renderer scrolls to bring it back.
@@ -267,10 +265,3 @@ Nothing here changes the engine. The renderer reads from engine state; the engin
 - The cursor index is still `keystrokes.length`. No `viewportStart` or `visibleRange` enters engine state.
 
 If the renderer ever needs the engine to track something for it (e.g., "the renderer wants to know which lines are typed yet"), that's a signal we've blurred the boundary. Push the computation to the render side instead.
-
-## Open questions
-
-- **Dynamic viewport size**: read `process.stdout.rows` and react to resize via `SIGWINCH`? Worth doing once the static-size version is solid.
-- **Scroll-off**: sticky-middle is the default; some editors prefer a few rows of look-ahead (cursor lands ~⅓ from the bottom). UX preference; pick after dogfooding.
-- **Chunk boundary cursor**: what happens when the cursor is exactly at a chunk boundary — render the chunk before, or the chunk after, or both? Default: the chunk after, since the user is about to type into it.
-- **Skipped whitespace**: when the typing path skips structural whitespace (leading indentation, blank lines), rendered chars vs. typeable chars diverge. Per-character coloring and cursor positioning need the right index. The renderer needs a typeable-index map handed in alongside the cursor — engine-side concern that surfaces here.

@@ -5,6 +5,7 @@ export type ChunkKind =
 	| 'code'
 	| 'heading'
 	| 'fenced-code'
+	| 'comment'
 	| 'diff-hunk';
 
 export type Chunk = {
@@ -27,7 +28,8 @@ export type SpanKind =
 	| 'md-emphasis-marker'
 	| 'md-link-syntax'
 	| 'md-code-span'
-	| 'md-fence';
+	| 'md-fence'
+	| 'md-comment';
 
 // A region within a chunk that the engine should treat as cosmetic
 // (rendered but not in the typing path). Style is a hint for renderer
@@ -149,10 +151,13 @@ function computeSpans(
 	return spans;
 }
 
-// Markdown chunker. Walks lines once, building three chunk kinds:
+// Markdown chunker. Walks lines once, building these chunk kinds:
 //   - `heading`   — a single `#…` line; the `#+ ` prefix becomes cosmetic
 //   - `fenced-code` — content between ```...``` fences; the fence lines themselves
 //     are cosmetic, content inside is typeable as-is (verbatim code)
+//   - `comment` — an `<!-- … -->` HTML comment block; the whole block is cosmetic
+//     (rendered dim, nothing typed) since the prose inside is editorial, not text
+//     you're drilling on
 //   - `prose` — blank-line-delimited paragraphs; spans mark `**bold**`,
 //     `_italic_`, inline `` `code` ``, link `[`/`](url)` syntax, list markers
 //     (`- `, `1. `), and block-quote `> ` prefixes (content stays typeable)
@@ -262,6 +267,34 @@ export const markdownChunker: Chunker = text => {
 				spans,
 			});
 			i = j + 1; // Resume after the closing fence
+			continue;
+		}
+
+		// HTML comment block: `<!-- … -->`, possibly spanning multiple lines — and
+		// even blank lines, which is exactly why it's consumed as a unit here
+		// instead of left to the prose path, where a blank line inside it would
+		// split it in two. The whole block is one cosmetic span: rendered dim,
+		// nothing typed. If unclosed, it runs to end-of-text, mirroring the fence
+		// rule above. Only own-line comments are handled; an inline `<!-- … -->`
+		// mid-prose-line stays typeable (common-case markdown only).
+		if (/^\s*<!--/.test(line)) {
+			flushProse(i);
+			const commentStart = lineStart;
+			let j = i;
+			while (j < lines.length && !lines[j]!.includes('-->')) j++;
+
+			const hasClose = j < lines.length;
+			const commentEnd = hasClose
+				? lineStarts[j]! + lines[j]!.length
+				: text.length;
+
+			chunks.push({
+				start: commentStart,
+				end: commentEnd,
+				kind: 'comment',
+				spans: [{start: commentStart, end: commentEnd, style: 'md-comment'}],
+			});
+			i = hasClose ? j + 1 : lines.length; // Resume after the closing `-->`
 			continue;
 		}
 
@@ -411,6 +444,44 @@ export function typeableIndicesFromChunk(
 	return typeableIndices.filter(pos => pos >= startPos);
 }
 
+// The chunk indices a cursor can actually stop in: those owning at least one
+// typeable position. A fully-cosmetic chunk (a bare-URL line, an `<!-- comment
+// -->`, any all-skipped chunk) renders as context but is never a stop. This is
+// the one derived "where can you be" list — skip navigation, the chunk counter,
+// and scoping all read it, so a cosmetic chunk can't desync them. The structural
+// `chunks` array is unchanged; it still drives rendering and viewport sizing.
+export function typeableChunkIndices(
+	chunks: readonly Chunk[],
+	typeableIndices: readonly number[],
+): number[] {
+	const stops: number[] = [];
+	for (const [i, chunk] of chunks.entries()) {
+		if (typeableIndices.some(pos => pos >= chunk.start && pos < chunk.end)) {
+			stops.push(i);
+		}
+	}
+
+	return stops;
+}
+
+// The stop to land on when skipping `direction` (+1 forward / -1 back) from the
+// chunk at raw index `fromChunkIdx`, over a `stops` list (from
+// typeableChunkIndices). Steps to the nearest stop strictly past `fromChunkIdx`;
+// with none in that direction it returns `fromChunkIdx` unchanged, so a skip at
+// the first/last stop is a no-op (and triggers no remount). `fromChunkIdx` need
+// not itself be a stop.
+export function adjacentTypeableChunk(
+	stops: readonly number[],
+	fromChunkIdx: number,
+	direction: 1 | -1,
+): number {
+	const target =
+		direction === 1
+			? stops.find(stop => stop > fromChunkIdx)
+			: stops.findLast(stop => stop < fromChunkIdx);
+	return target ?? fromChunkIdx;
+}
+
 export function computeTypeableIndices(
 	text: string,
 	chunks: Chunk[] = [],
@@ -429,7 +500,42 @@ export function computeTypeableIndices(
 	}
 
 	// Filter base by removing cosmetic positions.
-	return baseIndices.filter(i => !cosmeticPositions.has(i));
+	const typeable = baseIndices.filter(i => !cosmeticPositions.has(i));
+	return dropOrphanNewlines(text, typeable);
+}
+
+// A line break is typeable so you can Enter from one content line to the next.
+// But once cosmetic spans and base skips are applied, a whole line can end up
+// with nothing typeable on it — a bare-URL line, an `<!-- comment -->` line, a
+// closing ``` fence. Its trailing newline would then be the *only* typeable
+// position on the line, so the line becomes a chunk you can do nothing in but
+// press Enter. Drop such a newline: keep one only if its own line has typeable
+// content AND typeable content still follows it (so the last line never sprouts a
+// trailing Enter either). The cursor then glides over an all-cosmetic line the
+// same way it glides over a blank one.
+function dropOrphanNewlines(
+	text: string,
+	typeable: readonly number[],
+): readonly number[] {
+	const content = typeable.filter(pos => text[pos] !== '\n');
+	const contentPositions = new Set(content);
+	const lastContent = content.at(-1) ?? -1;
+
+	return typeable.filter(pos => {
+		if (text[pos] !== '\n') return true; // Content is always kept.
+		// The newline terminates the line that starts after the previous newline;
+		// there's no other newline in between, so any content there is this line's.
+		const lineStart = text.lastIndexOf('\n', pos - 1) + 1;
+		let hasContentBefore = false;
+		for (let i = lineStart; i < pos; i++) {
+			if (contentPositions.has(i)) {
+				hasContentBefore = true;
+				break;
+			}
+		}
+
+		return hasContentBefore && pos < lastContent;
+	});
 }
 
 // Characters that render fine but can't be reasonably typed on a standard
@@ -468,11 +574,31 @@ function computeBaseTypeableIndices(text: string): readonly number[] {
 		// finding the first non-leading-whitespace char in this line, if any
 		const firstContent = line.search(/[^ \t]/);
 		if (firstContent !== -1) {
+			// Char offsets inside a bare `http(s)://…` URL on this line. A long opaque
+			// URL is tedious and rarely the point of a drill, in *any* file format —
+			// so it's skipped here in the kind-agnostic base layer (alongside the
+			// ellipsis/emoji skips), not in a per-kind chunker. URL chars are ASCII, so
+			// the cluster index equals the char index and this set reads cleanly below.
+			const urlPositions = new Set<number>();
+			for (const match of line.matchAll(/https?:\/\/[^\s)\]]+/g)) {
+				for (let k = 0; k < match[0].length; k++)
+					urlPositions.add(match.index + k);
+			}
+
 			// One typeable index per grapheme cluster (so a multi-code-unit accent
 			// like e+◌́ is a single cursor stop), not per UTF-16 code unit.
 			for (const {segment, index} of segmentGraphemes(line)) {
 				if (index < firstContent) continue; // Leading whitespace
 				if (segment === '\t') continue; // Mid-line tab whitespace
+				if (urlPositions.has(index)) continue; // Inside a bare URL
+				// Collapse a run of 2+ spaces to a single keystroke: only the run's
+				// first space stays typeable; the rest are skipped (cursor jumps past).
+				// Alignment padding — `ttype file.txt    # comment`, lined-up table
+				// columns — shouldn't make you type every space, same spirit as the tab
+				// skip above. A lone space is ordinary word spacing and stays typeable.
+				// (Space, not Tab, is the one key that fills the gap: Tab is bound to
+				// chunk-skip, so it never reaches the typing path.)
+				if (segment === ' ' && line[index - 1] === ' ') continue;
 				// Skip unmappable typographic chars and unkeyable clusters.
 				if (untypeableChars.has(segment)) continue;
 				if (skippableCluster.test(segment)) continue;

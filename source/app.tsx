@@ -7,7 +7,9 @@ import React, {
 	useState,
 } from 'react';
 import {
+	adjacentTypeableChunk,
 	computeTypeableIndices,
+	typeableChunkIndices,
 	typeableIndicesFromChunk,
 	type Chunk,
 	type Chunker,
@@ -63,6 +65,11 @@ const statusFooterRows = 2;
 // the cell's display width so masking a wide glyph (CJK) keeps columns aligned.
 const maskGlyph = '▁';
 
+// Drawn over a run of 2+ spaces that the chunker collapsed to a single keystroke,
+// so the skippable gap is visible (a blank space would look like ordinary spacing
+// you must type in full). The whitespace twin of the ↵ newline marker.
+const collapsedSpaceGlyph = '·';
+
 // Stable empty stats for the not-yet-finished run, so the cloze derivation below
 // doesn't recompute (and re-fire effects) on every keystroke before the end.
 const emptyStats: readonly WordStat[] = [];
@@ -80,6 +87,10 @@ type Props = {
 type RacerProps = {
 	readonly text: string;
 	readonly chunks: Chunk[];
+	// The stoppable chunk indices (typeableChunkIndices) — the counter reports the
+	// cursor's position among these, so cosmetic-only chunks don't inflate or skip
+	// the "chunk N / M" numbers.
+	readonly stops: readonly number[];
 	readonly typeableIndices: readonly number[];
 	readonly viewportLineBudget: number;
 	readonly viewportColumns: number;
@@ -231,6 +242,7 @@ const spanVisuals: Record<SpanKind, SpanVisual> = {
 	'md-link-syntax': {color: 'gray'}, // [ and ](url)
 	'md-code-span': {color: 'gray'}, // The `backtick` pair around inline code
 	'md-fence': {color: 'gray'}, // ``` lines
+	'md-comment': {dimColor: true}, // <!-- … --> block — shown dim, skipped
 };
 
 // Per-character display decisions: what color/dim to paint each text position,
@@ -300,6 +312,14 @@ function useCharacterStyling({
 
 	const spanKindAt = (textPos: number) => positionToSpanKind.get(textPos);
 
+	// A space inside a run of 2+ spaces. The chunker collapses such a run to one
+	// keystroke (only its first space is typeable), so the renderer paints the
+	// whole run as dim middots to signal "skippable gap, tap once." A lone space
+	// has no space neighbor, so it stays an ordinary blank.
+	const isCollapsedSpace = (textPos: number): boolean =>
+		text[textPos] === ' ' &&
+		(text[textPos - 1] === ' ' || text[textPos + 1] === ' ');
+
 	const isCursor = (textPos: number) => textPos === cursorPos;
 
 	// In a cloze run, every typeable position is a blank to fill (typeableIndices
@@ -312,7 +332,7 @@ function useCharacterStyling({
 		return ki !== undefined && ki >= keystrokes.length;
 	};
 
-	return {styleFor, isCursor, spanKindAt, isMasked};
+	return {styleFor, isCursor, spanKindAt, isMasked, isCollapsedSpace};
 }
 
 // Session-meta derivations for the status row.
@@ -322,16 +342,16 @@ function useStats({
 	typeableIndices,
 	startedAt,
 	endedAt,
-	focusedChunk,
-	chunks,
+	focusedChunkIdx,
+	stops,
 }: {
 	readonly text: string;
 	readonly keystrokes: string[];
 	readonly typeableIndices: readonly number[];
 	readonly startedAt: number | undefined;
 	readonly endedAt: number | undefined;
-	readonly focusedChunk: Chunk | undefined;
-	readonly chunks: Chunk[];
+	readonly focusedChunkIdx: number;
+	readonly stops: readonly number[];
 }) {
 	// What character was the user supposed to type at keystroke index `i`?
 	// Translates from keystroke-space to text-space — the canonical lookup
@@ -376,9 +396,13 @@ function useStats({
 			  )
 			: wpm;
 
-	const chunkPos = focusedChunk
-		? `chunk ${chunks.indexOf(focusedChunk) + 1} / ${chunks.length}`
-		: '';
+	// Position among the stops, not the structural chunks, so cosmetic-only chunks
+	// (URL line, <!-- comment -->) neither inflate the total nor make the number
+	// jump. The focused chunk is itself a stop, so counting stops at or before it
+	// gives its 1-based place.
+	const stopNumber = stops.filter(stop => stop <= focusedChunkIdx).length;
+	const chunkPos =
+		stops.length > 0 ? `chunk ${stopNumber} / ${stops.length}` : '';
 
 	return {progress, liveWpm, accuracy, chunkPos};
 }
@@ -391,6 +415,7 @@ function useStats({
 export function Racer({
 	text: initialText,
 	chunks,
+	stops,
 	typeableIndices,
 	viewportLineBudget,
 	viewportColumns,
@@ -437,14 +462,15 @@ export function Racer({
 	// the last skip anchor, so Tab advances from where you are after typing ahead.
 	const focusedChunkIdx = focusedChunk ? chunks.indexOf(focusedChunk) : 0;
 
-	const {styleFor, isCursor, spanKindAt, isMasked} = useCharacterStyling({
-		text,
-		keystrokes,
-		typeableIndices,
-		chunks,
-		cursorPos,
-		isClozeRun,
-	});
+	const {styleFor, isCursor, spanKindAt, isMasked, isCollapsedSpace} =
+		useCharacterStyling({
+			text,
+			keystrokes,
+			typeableIndices,
+			chunks,
+			cursorPos,
+			isClozeRun,
+		});
 
 	const {progress, liveWpm, accuracy, chunkPos} = useStats({
 		text,
@@ -452,8 +478,8 @@ export function Racer({
 		typeableIndices,
 		startedAt,
 		endedAt,
-		focusedChunk,
-		chunks,
+		focusedChunkIdx,
+		stops,
 	});
 
 	const done = endedAt !== undefined;
@@ -584,15 +610,18 @@ export function Racer({
 					// UTF-16 position the engine uses — so a multi-column cell is drawn and
 					// highlighted as one unit. A tab's cell text is already its spaces.
 					const {color, backgroundColor, dimColor} = styleFor(cell.sourceStart);
+					// A collapsed-space run draws as dim middots so the one-tap gap is
+					// visible; everything else draws its own glyph at full style.
+					const collapsed = isCollapsedSpace(cell.sourceStart);
 					return (
 						<Text
 							key={cell.sourceStart}
 							color={color}
 							backgroundColor={backgroundColor}
-							dimColor={!lineInFocus || dimColor}
+							dimColor={collapsed || !lineInFocus || dimColor === true}
 							inverse={isCursor(cell.sourceStart)}
 						>
-							{cell.text}
+							{collapsed ? collapsedSpaceGlyph.repeat(cell.width) : cell.text}
 						</Text>
 					);
 				})}
@@ -863,6 +892,14 @@ export default function App({text, chunker, isSplit, isCloze}: Props) {
 		[text, chunks],
 	);
 
+	// The chunks you can actually stop in (own ≥1 typeable position) — cosmetic-only
+	// chunks (URL line, <!-- comment -->) are render context, not stops. Skip nav and
+	// the chunk counter both read this so they agree on "where can the cursor be."
+	const stops = useMemo(
+		() => typeableChunkIndices(chunks, allTypeableIndices),
+		[chunks, allTypeableIndices],
+	);
+
 	// The scope: which chunk the run starts on. Tab/Shift+Tab move it; the run
 	// always covers that chunk through end-of-text. useState gives us a value that
 	// survives re-renders and, when set, triggers one — unlike a plain variable.
@@ -892,12 +929,12 @@ export default function App({text, chunker, isSplit, isCloze}: Props) {
 	// new scope, so it clears any cloze re-drill — the new run starts as a normal one.
 	const skipForward = (fromChunkIdx: number) => {
 		setClozeTypeable(undefined);
-		setStartChunkIdx(Math.min(fromChunkIdx + 1, chunks.length - 1));
+		setStartChunkIdx(adjacentTypeableChunk(stops, fromChunkIdx, 1));
 	};
 
 	const skipBack = (fromChunkIdx: number) => {
 		setClozeTypeable(undefined);
-		setStartChunkIdx(Math.max(fromChunkIdx - 1, 0));
+		setStartChunkIdx(adjacentTypeableChunk(stops, fromChunkIdx, -1));
 	};
 
 	// The scope's typeable set: the start chunk → end of text, except during a cloze
@@ -919,6 +956,7 @@ export default function App({text, chunker, isSplit, isCloze}: Props) {
 			key={`${startChunkIdx}-${clozeAttempt}`}
 			text={text}
 			chunks={chunks}
+			stops={stops}
 			typeableIndices={typeableIndices}
 			viewportLineBudget={viewportLineBudget}
 			viewportColumns={viewportColumns}

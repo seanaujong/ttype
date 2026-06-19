@@ -1,6 +1,10 @@
 import test from 'ava';
 import React from 'react';
-import {blankLineChunker, computeTypeableIndices} from './chunker.js';
+import {
+	blankLineChunker,
+	computeTypeableIndices,
+	typeableChunkIndices,
+} from './chunker.js';
 import {Racer} from './app.js';
 import {renderApp, renderComponent, type RenderedApp} from './ink-harness.js';
 
@@ -9,6 +13,7 @@ import {renderApp, renderComponent, type RenderedApp} from './ink-harness.js';
 const text = 'alpha beta gamma';
 const chunks = blankLineChunker(text);
 const fullTypeable = computeTypeableIndices(text, chunks);
+const stops = typeableChunkIndices(chunks, fullTypeable);
 const betaStart = text.indexOf('beta');
 const betaPositions = [betaStart, betaStart + 1, betaStart + 2, betaStart + 3];
 
@@ -22,6 +27,7 @@ const renderRacer = (
 		React.createElement(Racer, {
 			text,
 			chunks,
+			stops,
 			typeableIndices,
 			viewportLineBudget: 24,
 			viewportColumns: 80,

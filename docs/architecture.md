@@ -9,6 +9,7 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 - **Data flows down, no upward references**: lower layers don't know about layers above them. Each pure module imports nothing from the layers that use it.
 - **The engine knows nothing about rendering**: it consumes typeable indices and keystroke actions, produces state.
 - **The chunker knows nothing about typing**: it classifies bytes into structural regions; whether and how those regions are typed is consumer's choice.
+- **Structural chunks vs. stops**: a chunk is a _render region_; a _stop_ is a place the cursor can land. They diverge once a chunk is fully cosmetic (a bare-URL line, an `<!-- comment -->`), so stops are _derived_ from the typeable set (`typeableChunkIndices`), and skip-nav + the chunk counter read that — not the raw chunk array. See [Structural chunks vs. stops](#structural-chunks-vs-stops).
 - **Composition lives in `app.tsx`**: the React shell wires pure modules together via hooks. It's the only place that knows about all the layers.
 
 ## The diagram
@@ -82,6 +83,14 @@ A high-level map of how ttype's layers fit together. This doc complements the pe
 - `computeTypeableIndices(text, chunks)` — applies engine-global skip rules (leading whitespace, blank lines, mid-line tabs) **and** subtracts chunk-provided cosmetic spans. Returns the positions the engine cursor can rest on.
 
 The chunker is pure: text-in, data-out. No I/O, no React.
+
+## Structural chunks vs. stops
+
+A `Chunk` plays two roles that used to coincide. As a **structural region** it drives rendering and viewport sizing — a paragraph, a hunk, a fenced block, an `<!-- comment -->` — and _every_ chunk is one. As a **stop** it's a place the cursor can land: what `Tab` / `Shift+Tab` step between, and what the `chunk N / M` counter counts. While every chunk held typeable content these were the same thing. Once a chunk can be _entirely cosmetic_ — a bare-URL line, a comment block, every character skipped — the roles split: such a chunk is structure-for-rendering but never a stop.
+
+The typeable set is the ground truth for "where the cursor can be," so stops are **derived** from it, never stored alongside the chunks: `typeableChunkIndices(chunks, typeableIndices)` returns the indices of chunks owning ≥1 typeable position. Skip navigation (`adjacentTypeableChunk`) and the counter both read that one derived list, so a cosmetic chunk can't desync them — it's simply absent. The structural `chunks` array is untouched; the renderer still shows the cosmetic region as dim context.
+
+The same rule applies one level down, at the line break: a newline is typeable (an Enter you press) only if its line has typed content _and_ typed content follows — an all-cosmetic line emits no Enter (`dropOrphanNewlines` in `computeTypeableIndices`). Chunk-stop and Enter-stop are the same invariant at two grains — **a stop must hold real typed content** — and both are computed from the typeable set rather than from a proxy (a structural chunk, a non-blank line) that once correlated with it and no longer does.
 
 ## Layer contracts (guarantees / assumes)
 

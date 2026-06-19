@@ -1,9 +1,11 @@
 import test, {type ExecutionContext} from 'ava';
 import {
+	adjacentTypeableChunk,
 	blankLineChunker,
 	computeTypeableIndices,
 	diffChunker,
 	markdownChunker,
+	typeableChunkIndices,
 	typeableIndicesFromChunk,
 } from './chunker.js';
 
@@ -258,6 +260,87 @@ test('markdownChunker: fence content stays typeable (verbatim code)', t => {
 	}
 });
 
+test('markdownChunker: HTML comment block is one cosmetic chunk', t => {
+	// A multi-line comment with a blank line inside it — the readme's shape. The
+	// blank line must not split it, so it's one `comment` chunk, fully covered by
+	// a single md-comment span.
+	const text = '<!--\nfirst note\n\nsecond note\n-->';
+	const chunks = markdownChunker(text);
+	t.is(chunks.length, 1);
+	t.is(chunks[0]!.kind, 'comment');
+	t.deepEqual(chunks[0]!.spans, [
+		{start: 0, end: text.length, style: 'md-comment'},
+	]);
+});
+
+test('markdownChunker: comment is skipped, surrounding prose stays typeable', t => {
+	const text = '# Title\n\n<!--\neditorial note\n-->\n\nreal content';
+	const chunks = markdownChunker(text);
+	const indices = computeTypeableIndices(text, chunks);
+	// Nothing inside the comment block is typeable.
+	const commentStart = text.indexOf('<!--');
+	const commentEnd = text.indexOf('-->') + '-->'.length;
+	for (let i = commentStart; i < commentEnd; i++) {
+		t.false(indices.includes(i), `comment position ${i} should be skipped`);
+	}
+
+	// The prose after it still is.
+	const contentStart = text.indexOf('real content');
+	for (let i = 0; i < 'real content'.length; i++) {
+		t.true(
+			indices.includes(contentStart + i),
+			`expected ${contentStart + i} typeable`,
+		);
+	}
+
+	// The comment block has nothing typeable, so its trailing newline must not be
+	// typeable either — otherwise the block becomes a chunk you can only Enter past.
+	const commentNewline = text.indexOf('\n', text.indexOf('-->'));
+	t.false(indices.includes(commentNewline));
+});
+
+test('computeTypeableIndices drops the Enter on an all-skipped line', t => {
+	// 'A\nhttps://x.com/y\nB' — the URL line has no typeable content, so its
+	// trailing newline is dropped: you type A, one Enter, then B. (A=0, \n=1, the
+	// 15-char URL fills 2..16, its \n at 17 is dropped, B=18.)
+	t.deepEqual(computeTypeableIndices('A\nhttps://x.com/y\nB'), [0, 1, 18]);
+});
+
+test('markdownChunker: unclosed comment runs to end-of-text', t => {
+	const text = 'intro\n\n<!--\ndangling note, no close';
+	const chunks = markdownChunker(text);
+	const comment = chunks.find(c => c.kind === 'comment');
+	t.truthy(comment);
+	t.is(comment!.end, text.length);
+});
+
+test('computeTypeableIndices skips a bare URL in any text (base layer)', t => {
+	// No chunks — the plain-text path. URL skipping lives in the kind-agnostic base
+	// layer, so it applies to prose, code, commits, diffs alike, not just markdown.
+	const text = 'See https://example.com/a/b for more.';
+	const indices = computeTypeableIndices(text);
+	const urlStart = text.indexOf('https');
+	const urlEnd = text.indexOf(' for');
+	for (let i = urlStart; i < urlEnd; i++) {
+		t.false(indices.includes(i), `url char ${i} should be skipped`);
+	}
+
+	// The surrounding words stay typeable.
+	t.true(indices.includes(text.indexOf('See')));
+	t.true(indices.includes(text.indexOf('for')));
+});
+
+test('computeTypeableIndices collapses a run of spaces to one keystroke', t => {
+	// 'a    b' — 'a'=0, four spaces at 1-4, 'b'=5. Only the run's first space (1)
+	// is typeable; 2,3,4 are skipped, so one Space advances a -> b.
+	t.deepEqual(computeTypeableIndices('a    b'), [0, 1, 5]);
+});
+
+test('computeTypeableIndices keeps a lone space typeable', t => {
+	// Single spaces are ordinary word spacing — every position stays typeable.
+	t.deepEqual(computeTypeableIndices('a b c'), [0, 1, 2, 3, 4]);
+});
+
 test('computeTypeableIndices skips unmappable typographic chars (ellipsis)', t => {
 	// 'a…b' — the ellipsis has no 1:1 ASCII keystroke, so it's skipped.
 	// Positions: a=0, …=1, b=2. Typeable: a, b.
@@ -311,6 +394,36 @@ test('typeableIndicesFromChunk: scoping past a chunk excludes its content', t =>
 	// 'first' drops out of the typeable set; 'second' stays in it.
 	t.false(scoped.includes(text.indexOf('first')));
 	t.true(scoped.includes(text.indexOf('second')));
+});
+
+// Stops + skip navigation. Chunk 1 (S) is fully cosmetic (no typeable position
+// lands in it); A and B have content. Navigation reads the derived stops list, so
+// a cosmetic chunk is simply absent from it.
+const skipChunks = [
+	{start: 0, end: 5}, // A
+	{start: 6, end: 10}, // S — cosmetic
+	{start: 11, end: 15}, // B
+];
+const skipTypeable = [0, 1, 2, 3, 11, 12, 13, 14]; // None in S's [6,10)
+
+test('typeableChunkIndices: a fully-cosmetic chunk is not a stop', t => {
+	t.deepEqual(typeableChunkIndices(skipChunks, skipTypeable), [0, 2]);
+});
+
+test('adjacentTypeableChunk: back from B steps over cosmetic S to A', t => {
+	const stops = typeableChunkIndices(skipChunks, skipTypeable);
+	t.is(adjacentTypeableChunk(stops, 2, -1), 0);
+});
+
+test('adjacentTypeableChunk: forward from A steps over cosmetic S to B', t => {
+	const stops = typeableChunkIndices(skipChunks, skipTypeable);
+	t.is(adjacentTypeableChunk(stops, 0, 1), 2);
+});
+
+test('adjacentTypeableChunk: no stop that way is a no-op', t => {
+	const stops = typeableChunkIndices(skipChunks, skipTypeable);
+	t.is(adjacentTypeableChunk(stops, 0, -1), 0); // Nothing before A
+	t.is(adjacentTypeableChunk(stops, 2, 1), 2); // Nothing after B
 });
 
 // Diff typeable-contract invariant: you type the *content* of a changed line,
